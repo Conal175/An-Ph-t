@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Image as ImageIcon, Folder, FileVideo, FileImage, FileText, 
-  Link as LinkIcon, Plus, Edit2, Trash2, ExternalLink, Loader2, Check, X 
+  Link as LinkIcon, Plus, Edit2, Trash2, ExternalLink, Loader2, Check, X, Save 
 } from 'lucide-react';
 import { getProjectData, setProjectData } from '../store';
 import { useAuth } from '../contexts/AuthContext';
