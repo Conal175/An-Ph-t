@@ -1,105 +1,80 @@
-import { useState } from 'react';
-import type { ProductAdvantage } from '../types';
-import { useSyncData } from '../store';
-import { v4 as uuid } from 'uuid';
-import { Plus, Edit2, Trash2, Save, X, Package, Link as LinkIcon, ArrowLeft, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Package, Save, Loader2, ArrowLeft } from 'lucide-react';
+import { getProjectData, setProjectData } from '../store';
+import { useAuth } from '../contexts/AuthContext';
 
-interface Props { projectId: string; onBack: () => void; }
+interface Props {
+  projectId: string;
+  onBack: () => void;
+}
 
 export function ProductStrategy({ projectId, onBack }: Props) {
-  const { data: products, syncData: setProducts, loading } = useSyncData<ProductAdvantage>(projectId, 'productAdvantages', []);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ productName: '', specs: '', competitiveAdvantage: '', promotions: '', mediaLinks: '' });
+  const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const { checkPermission } = useAuth();
+  const canEdit = checkPermission('strategy_product', 'edit');
 
-  const resetForm = () => {
-    setForm({ productName: '', specs: '', competitiveAdvantage: '', promotions: '', mediaLinks: '' });
-    setShowForm(false); setEditingId(null);
-  };
+  const [data, setData] = useState({
+    coreValue: '',
+    usp: '',
+    pricing: '',
+    positioning: ''
+  });
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      const savedData = await getProjectData(projectId, 'productStrategy');
+      if (savedData) setData(savedData);
+      setLoading(false);
+    };
+    loadData();
+  }, [projectId]);
 
   const handleSave = async () => {
-    if (!form.productName.trim()) return;
-    if (editingId) {
-      await setProducts(products.map(p => p.id === editingId ? { ...p, ...form } : p));
-    } else {
-      await setProducts([...products, { id: uuid(), projectId, ...form }]);
-    }
-    resetForm();
+    if (!canEdit) return;
+    setIsSaving(true);
+    await setProjectData(projectId, 'productStrategy', data);
+    setIsSaving(false);
+    alert('✅ Đã lưu Chiến lược Sản phẩm!');
   };
 
-  const handleEdit = (p: ProductAdvantage) => {
-    setForm({ productName: p.productName, specs: p.specs, competitiveAdvantage: p.competitiveAdvantage, promotions: p.promotions, mediaLinks: p.mediaLinks });
-    setEditingId(p.id); setShowForm(true);
-  };
-
-  const handleDelete = async (id: string) => {
-    if (confirm('Xóa sản phẩm này?')) await setProducts(products.filter(p => p.id !== id));
-  };
-
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center py-24 text-gray-500"><Loader2 className="w-8 h-8 animate-spin text-amber-500 mb-4" /><p>Đang tải dữ liệu sản phẩm...</p></div>
-  );
+  if (loading) return <div className="py-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-amber-600" /></div>;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div className="flex items-center justify-between bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
         <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft className="w-5 h-5 text-gray-600" /></button>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center"><Package className="w-6 h-6 text-white" /></div>
-            <div><h1 className="text-2xl font-bold text-gray-800">Chi Tiết Sản Phẩm</h1></div>
+          <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-xl transition-colors"><ArrowLeft className="w-5 h-5 text-gray-600" /></button>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Package className="w-6 h-6 text-amber-600" /> Chi Tiết Sản Phẩm</h2>
+            <p className="text-sm text-gray-500 mt-1">Định vị và giá trị cốt lõi của sản phẩm</p>
           </div>
         </div>
-        <button onClick={() => setShowForm(true)} className="flex items-center gap-2 bg-amber-500 text-white px-5 py-2.5 rounded-xl hover:bg-amber-600"><Plus className="w-5 h-5" /> Thêm sản phẩm</button>
+        {canEdit && (
+          <button onClick={handleSave} disabled={isSaving} className="flex items-center gap-2 bg-amber-600 text-white px-6 py-2.5 rounded-xl hover:bg-amber-700 font-medium shadow-sm transition-colors disabled:opacity-50">
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Lưu Chiến Lược
+          </button>
+        )}
       </div>
 
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl">
-            <h3 className="text-xl font-bold text-gray-800 mb-5">{editingId ? 'Sửa Sản Phẩm' : 'Thêm Sản Phẩm'}</h3>
-            <div className="space-y-4">
-              <input value={form.productName} onChange={e => setForm({ ...form, productName: e.target.value })} placeholder="Tên sản phẩm *" className="w-full border p-3 rounded-xl" />
-              <textarea value={form.specs} onChange={e => setForm({ ...form, specs: e.target.value })} placeholder="Thông số kỹ thuật" rows={3} className="w-full border p-3 rounded-xl" />
-              <textarea value={form.competitiveAdvantage} onChange={e => setForm({ ...form, competitiveAdvantage: e.target.value })} placeholder="Lợi thế cạnh tranh" rows={2} className="w-full border p-3 rounded-xl" />
-              <textarea value={form.promotions} onChange={e => setForm({ ...form, promotions: e.target.value })} placeholder="Chương trình ưu đãi" rows={2} className="w-full border p-3 rounded-xl" />
-              <textarea value={form.mediaLinks} onChange={e => setForm({ ...form, mediaLinks: e.target.value })} placeholder="Link Media (Mỗi dòng 1 link)" rows={2} className="w-full border p-3 rounded-xl" />
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={handleSave} className="flex-1 bg-amber-500 text-white py-3 rounded-xl font-medium">Lưu</button>
-              <button onClick={resetForm} className="px-6 py-3 bg-gray-100 rounded-xl">Hủy</button>
-            </div>
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <label className="block font-bold text-gray-800 mb-2">Giá trị cốt lõi (Core Value)</label>
+          <textarea value={data.coreValue} onChange={e => setData({...data, coreValue: e.target.value})} disabled={!canEdit} rows={5} className="w-full border border-gray-200 rounded-xl p-4 focus:ring-2 focus:ring-amber-500 outline-none resize-none bg-gray-50/50" placeholder="Sản phẩm giải quyết vấn đề cốt lõi gì cho khách hàng?..." />
         </div>
-      )}
-
-      <div className="bg-white rounded-2xl border overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-amber-50 border-b">
-            <tr>
-              <th className="px-4 py-4 text-xs font-bold text-amber-800">Tên SP</th>
-              <th className="px-4 py-4 text-xs font-bold text-amber-800">Thông số</th>
-              <th className="px-4 py-4 text-xs font-bold text-amber-800">Lợi thế</th>
-              <th className="px-4 py-4 text-xs font-bold text-amber-800">Ưu đãi</th>
-              <th className="px-4 py-4 text-center text-xs font-bold text-amber-800">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {products.map(p => (
-              <tr key={p.id} className="hover:bg-amber-50/30">
-                <td className="px-4 py-4 font-semibold">{p.productName}</td>
-                <td className="px-4 py-4 text-sm whitespace-pre-line">{p.specs}</td>
-                <td className="px-4 py-4 text-sm whitespace-pre-line">{p.competitiveAdvantage}</td>
-                <td className="px-4 py-4 text-sm whitespace-pre-line">{p.promotions}</td>
-                <td className="px-4 py-4">
-                  <div className="flex items-center justify-center gap-1">
-                    <button onClick={() => handleEdit(p)} className="p-2 text-amber-600 hover:bg-amber-100 rounded-lg"><Edit2 className="w-4 h-4" /></button>
-                    <button onClick={() => handleDelete(p.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <label className="block font-bold text-gray-800 mb-2">Điểm bán hàng độc nhất (USP)</label>
+          <textarea value={data.usp} onChange={e => setData({...data, usp: e.target.value})} disabled={!canEdit} rows={5} className="w-full border border-gray-200 rounded-xl p-4 focus:ring-2 focus:ring-amber-500 outline-none resize-none bg-gray-50/50" placeholder="Điểm khác biệt hoàn toàn so với đối thủ?..." />
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <label className="block font-bold text-gray-800 mb-2">Chiến lược giá (Pricing)</label>
+          <textarea value={data.pricing} onChange={e => setData({...data, pricing: e.target.value})} disabled={!canEdit} rows={5} className="w-full border border-gray-200 rounded-xl p-4 focus:ring-2 focus:ring-amber-500 outline-none resize-none bg-gray-50/50" placeholder="Phân khúc giá, chính sách khuyến mãi, quà tặng..." />
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <label className="block font-bold text-gray-800 mb-2">Định vị thương hiệu (Positioning)</label>
+          <textarea value={data.positioning} onChange={e => setData({...data, positioning: e.target.value})} disabled={!canEdit} rows={5} className="w-full border border-gray-200 rounded-xl p-4 focus:ring-2 focus:ring-amber-500 outline-none resize-none bg-gray-50/50" placeholder="Khách hàng sẽ nhớ đến sản phẩm với hình ảnh nào?..." />
+        </div>
       </div>
     </div>
   );
