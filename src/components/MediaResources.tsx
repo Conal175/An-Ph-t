@@ -9,7 +9,7 @@ import { getProjectData, setProjectData } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 
 // ==========================================
-// ĐỊNH NGHĨA TYPES (Tích hợp sẵn để không lỗi import)
+// ĐỊNH NGHĨA TYPES 
 // ==========================================
 interface FanpageCheckItem {
   id: string;
@@ -118,26 +118,40 @@ export function MediaResources({ projectId }: Props) {
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [itemForm, setItemForm] = useState<Omit<MediaItem, 'id' | 'createdAt'>>({ name: '', type: 'image', link: '', description: '' });
 
-  // Load Data
+  // ================= LOAD DATA & AUTO REPAIR =================
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      const savedFanpages = await getProjectData(projectId, 'fanpages');
-      let savedFolders = await getProjectData(projectId, 'mediaFolders');
-      
-      if (savedFanpages) setFanpages(savedFanpages);
-      
-      if (!savedFolders || savedFolders.length === 0) {
-        savedFolders = createDefaultFolders(projectId);
-        await setProjectData(projectId, 'mediaFolders', savedFolders);
+      try {
+        const savedFanpages = await getProjectData(projectId, 'fanpages');
+        let savedFolders = await getProjectData(projectId, 'mediaFolders');
+        
+        // TỰ ĐỘNG VÁ LỖI: Kiểm tra và bơm Checklist vào các Fanpage bị lỗi cấu trúc
+        if (savedFanpages && Array.isArray(savedFanpages)) {
+          const repairedFanpages = savedFanpages.map((fp: any) => ({
+            ...fp,
+            url: fp.url || fp.link || '', // Vá lỗi đồng bộ tên biến url
+            items: (fp.items && Array.isArray(fp.items) && fp.items.length > 0) 
+                   ? fp.items 
+                   : createDefaultChecklistItems()
+          }));
+          setFanpages(repairedFanpages);
+        }
+        
+        if (!savedFolders || savedFolders.length === 0) {
+          savedFolders = createDefaultFolders(projectId);
+          await setProjectData(projectId, 'mediaFolders', savedFolders);
+        }
+        setFolders(savedFolders);
+      } catch (error) {
+        console.error("Lỗi tải dữ liệu Media:", error);
       }
-      setFolders(savedFolders);
       setLoading(false);
     };
     loadData();
   }, [projectId]);
 
-  // Hàm Sync Data (Thay thế cho useSyncData cũ)
+  // Hàm Sync Data 
   const persistFanpages = async (newData: Fanpage[]) => {
     setFanpages(newData);
     await setProjectData(projectId, 'fanpages', newData);
@@ -164,7 +178,9 @@ export function MediaResources({ projectId }: Props) {
 
   const deleteFanpage = async (id: string) => {
     if (!canDelete) return;
-    if(confirm('Xóa Fanpage này và toàn bộ checklist?')) await persistFanpages(fanpages.filter(f => f.id !== id));
+    if(confirm('Xóa Fanpage này và toàn bộ checklist?')) {
+      await persistFanpages(fanpages.filter(f => f.id !== id));
+    }
   };
 
   const toggleExpandFanpage = (id: string) => setExpandedFanpages(prev => { 
