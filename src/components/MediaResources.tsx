@@ -54,12 +54,16 @@ export function MediaResources({ projectId }: Props) {
 
   const loadData = async () => {
     setLoading(true);
-    const [storedFanpages, storedMedia] = await Promise.all([
-      getProjectData(projectId, 'fanpages'),
-      getProjectData(projectId, 'mediaItems')
-    ]);
-    if (storedFanpages) setFanpages(storedFanpages);
-    if (storedMedia) setMediaItems(storedMedia);
+    try {
+      const [storedFanpages, storedMedia] = await Promise.all([
+        getProjectData(projectId, 'fanpages'),
+        getProjectData(projectId, 'mediaItems')
+      ]);
+      if (storedFanpages && Array.isArray(storedFanpages)) setFanpages(storedFanpages);
+      if (storedMedia && Array.isArray(storedMedia)) setMediaItems(storedMedia);
+    } catch (error) {
+      console.error("Lỗi tải dữ liệu Media:", error);
+    }
     setLoading(false);
   };
 
@@ -67,7 +71,7 @@ export function MediaResources({ projectId }: Props) {
   const handleAddFanpage = async () => {
     if (!newFanpage.name.trim() || !canEdit) return;
     setIsSaving(true);
-    const updatedList = [...fanpages, { id: uuid(), ...newFanpage }];
+    const updatedList = [{ id: uuid(), ...newFanpage }, ...fanpages];
     await setProjectData(projectId, 'fanpages', updatedList);
     setFanpages(updatedList);
     setNewFanpage({ name: '', link: '', status: 'Hoạt động', notes: '' });
@@ -127,33 +131,34 @@ export function MediaResources({ projectId }: Props) {
   };
 
   if (loading) {
-    return <div className="py-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>;
+    return <div className="py-24 flex flex-col items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" /><p className="text-gray-500">Đang tải dữ liệu...</p></div>;
   }
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
-      {/* HEADER */}
+    <div className="space-y-6 max-w-6xl mx-auto pb-10">
+      {/* HEADER TỔNG */}
       <div className="flex justify-between items-end bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <Folder className="w-7 h-7 text-indigo-600" /> Tài Nguyên & Media
           </h2>
-          <p className="text-gray-500 mt-1">Quản lý Fanpage, kho ảnh, video và tài liệu dự án</p>
+          <p className="text-gray-500 mt-1">Quản lý Checklist Fanpage, kho ảnh, video và tài liệu dự án</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        
         {/* =========================================================================
             PHẦN 1: QUẢN LÝ FANPAGE / CHECKLIST KÊNH
         ========================================================================= */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col h-full">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
               <LinkIcon className="w-5 h-5 text-blue-500" /> Checklist Fanpage
             </h3>
             {canEdit && !showAddFanpage && (
               <button onClick={() => setShowAddFanpage(true)} className="flex items-center gap-1.5 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-100 font-medium text-sm transition-colors">
-                <Plus className="w-4 h-4" /> Kênh Mới
+                <Plus className="w-4 h-4" /> Thêm Kênh
               </button>
             )}
           </div>
@@ -164,11 +169,11 @@ export function MediaResources({ projectId }: Props) {
               <div className="grid grid-cols-1 gap-3 text-sm">
                 <div>
                   <label className="block font-medium text-gray-700 mb-1">Tên Fanpage *</label>
-                  <input type="text" autoFocus value={newFanpage.name} onChange={e => setNewFanpage({...newFanpage, name: e.target.value})} className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <input type="text" autoFocus value={newFanpage.name} onChange={e => setNewFanpage({...newFanpage, name: e.target.value})} className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Nhập tên kênh..." />
                 </div>
                 <div>
                   <label className="block font-medium text-gray-700 mb-1">Link Fanpage</label>
-                  <input type="text" value={newFanpage.link} onChange={e => setNewFanpage({...newFanpage, link: e.target.value})} className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <input type="text" value={newFanpage.link} onChange={e => setNewFanpage({...newFanpage, link: e.target.value})} className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://..." />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -182,12 +187,12 @@ export function MediaResources({ projectId }: Props) {
                   </div>
                   <div>
                     <label className="block font-medium text-gray-700 mb-1">Ghi chú</label>
-                    <input type="text" value={newFanpage.notes} onChange={e => setNewFanpage({...newFanpage, notes: e.target.value})} className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="text" value={newFanpage.notes} onChange={e => setNewFanpage({...newFanpage, notes: e.target.value})} className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Tình trạng via..." />
                   </div>
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
-                <button onClick={() => setShowAddFanpage(false)} className="px-4 py-1.5 text-sm text-gray-600 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg transition-colors">Hủy</button>
+                <button onClick={() => setShowAddFanpage(false)} className="px-4 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Hủy</button>
                 <button onClick={handleAddFanpage} disabled={isSaving || !newFanpage.name.trim()} className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5">
                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Lưu Kênh
                 </button>
@@ -196,41 +201,55 @@ export function MediaResources({ projectId }: Props) {
           )}
 
           {/* DANH SÁCH FANPAGE */}
-          <div className="space-y-3 overflow-y-auto pr-1" style={{ maxHeight: '600px' }}>
+          <div className="space-y-3 overflow-y-auto pr-1 max-h-[600px] custom-scrollbar">
             {fanpages.length === 0 && !showAddFanpage ? (
-              <div className="py-8 text-center text-gray-400 border-2 border-dashed border-gray-100 rounded-xl">Chưa có Fanpage nào được thêm.</div>
+              <div className="py-10 text-center text-gray-400 border-2 border-dashed border-gray-100 rounded-xl">Chưa có Fanpage nào được thêm.</div>
             ) : fanpages.map((page) => {
               const isEditing = editingFanpageId === page.id;
 
               return (
-                <div key={page.id} className={`p-4 rounded-xl border transition-colors ${isEditing ? 'bg-yellow-50/30 border-yellow-300' : 'bg-white border-gray-100 hover:border-blue-200'}`}>
+                <div key={page.id} className={`p-4 rounded-xl border transition-colors ${isEditing ? 'bg-yellow-50/50 border-yellow-300 shadow-sm' : 'bg-white border-gray-100 hover:border-blue-200'}`}>
                   {isEditing ? (
                     // CHẾ ĐỘ SỬA (INLINE EDIT)
                     <div className="space-y-3 animate-in fade-in text-sm">
-                      <input autoFocus type="text" value={editFanpageData.name || ''} onChange={e => setEditFanpageData({...editFanpageData, name: e.target.value})} className="w-full border-b border-gray-300 px-1 py-1 focus:border-blue-500 outline-none font-bold text-gray-800 bg-transparent" placeholder="Tên Fanpage" />
-                      <input type="text" value={editFanpageData.link || ''} onChange={e => setEditFanpageData({...editFanpageData, link: e.target.value})} className="w-full border border-gray-200 rounded px-2 py-1.5 focus:border-blue-500 outline-none bg-white" placeholder="Đường dẫn (URL)" />
-                      
-                      <div className="grid grid-cols-2 gap-2">
-                        <select value={editFanpageData.status || ''} onChange={e => setEditFanpageData({...editFanpageData, status: e.target.value})} className="w-full border border-gray-200 rounded px-2 py-1.5 outline-none bg-white">
-                          <option value="Hoạt động">Hoạt động tốt</option>
-                          <option value="Bị hạn chế">Bị hạn chế</option>
-                          <option value="Hủy đăng">Bị hủy đăng</option>
-                          <option value="Nuôi mới">Đang nuôi mới</option>
-                        </select>
-                        <input type="text" value={editFanpageData.notes || ''} onChange={e => setEditFanpageData({...editFanpageData, notes: e.target.value})} className="w-full border border-gray-200 rounded px-2 py-1.5 outline-none bg-white" placeholder="Ghi chú" />
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Tên Fanpage</label>
+                        <input autoFocus type="text" value={editFanpageData.name || ''} onChange={e => setEditFanpageData({...editFanpageData, name: e.target.value})} className="w-full border border-gray-300 rounded px-3 py-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none font-bold text-gray-800" placeholder="Tên Fanpage" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Đường dẫn (URL)</label>
+                        <input type="text" value={editFanpageData.link || ''} onChange={e => setEditFanpageData({...editFanpageData, link: e.target.value})} className="w-full border border-gray-300 rounded px-3 py-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="https://..." />
                       </div>
                       
-                      <div className="flex justify-end gap-2 pt-2">
-                        <button onClick={() => setEditingFanpageId(null)} className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded flex items-center gap-1"><X className="w-3.5 h-3.5"/> Hủy</button>
-                        <button onClick={saveEditFanpage} disabled={isSaving} className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded flex items-center gap-1 disabled:opacity-50"><Check className="w-3.5 h-3.5"/> Lưu</button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">Trạng thái</label>
+                          <select value={editFanpageData.status || ''} onChange={e => setEditFanpageData({...editFanpageData, status: e.target.value})} className="w-full border border-gray-300 rounded px-2 py-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none bg-white">
+                            <option value="Hoạt động">Hoạt động tốt</option>
+                            <option value="Bị hạn chế">Bị hạn chế</option>
+                            <option value="Hủy đăng">Bị hủy đăng</option>
+                            <option value="Nuôi mới">Đang nuôi mới</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">Ghi chú</label>
+                          <input type="text" value={editFanpageData.notes || ''} onChange={e => setEditFanpageData({...editFanpageData, notes: e.target.value})} className="w-full border border-gray-300 rounded px-3 py-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Ghi chú thêm..." />
+                        </div>
+                      </div>
+                      
+                      <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
+                        <button onClick={() => setEditingFanpageId(null)} className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg flex items-center gap-1.5 font-medium transition-colors"><X className="w-4 h-4"/> Hủy</button>
+                        <button onClick={saveEditFanpage} disabled={isSaving || !editFanpageData.name?.trim()} className="px-4 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center gap-1.5 font-medium disabled:opacity-50 transition-colors">
+                          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4"/>} Lưu lại
+                        </button>
                       </div>
                     </div>
                   ) : (
                     // CHẾ ĐỘ XEM
-                    <div className="flex flex-col h-full">
+                    <div className="flex flex-col h-full group">
                       <div className="flex items-start justify-between gap-3 mb-2">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1.5">
                             <h4 className="font-bold text-gray-800 text-base truncate">{page.name}</h4>
                             <span className={`px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md border shrink-0 ${
                               page.status === 'Hoạt động' ? 'bg-green-50 text-green-700 border-green-200' : 
@@ -241,20 +260,20 @@ export function MediaResources({ projectId }: Props) {
                             </span>
                           </div>
                           {page.link && (
-                            <a href={page.link} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline flex items-center gap-1 truncate max-w-full">
+                            <a href={page.link} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1 truncate max-w-full">
                               <ExternalLink className="w-3.5 h-3.5 shrink-0" /> Mở trang
                             </a>
                           )}
                         </div>
                         
                         {(canEdit || canDelete) && (
-                          <div className="flex items-center gap-0.5 shrink-0">
-                            {canEdit && <button onClick={() => { setEditingFanpageId(page.id); setEditFanpageData({...page}); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 className="w-4 h-4" /></button>}
-                            {canDelete && <button onClick={() => handleDeleteFanpage(page.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>}
+                          <div className="flex items-center gap-0.5 shrink-0 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                            {canEdit && <button onClick={() => { setEditingFanpageId(page.id); setEditFanpageData({...page}); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Sửa thông tin"><Edit2 className="w-4 h-4" /></button>}
+                            {canDelete && <button onClick={() => handleDeleteFanpage(page.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Xóa Kênh"><Trash2 className="w-4 h-4" /></button>}
                           </div>
                         )}
                       </div>
-                      {page.notes && <p className="text-sm text-gray-500 bg-gray-50 p-2 rounded border border-gray-100 mt-1"><span className="font-semibold text-gray-600">Note:</span> {page.notes}</p>}
+                      {page.notes && <p className="text-sm text-gray-500 bg-gray-50 p-2.5 rounded-lg border border-gray-100 mt-2"><span className="font-semibold text-gray-700">Ghi chú:</span> {page.notes}</p>}
                     </div>
                   )}
                 </div>
@@ -266,10 +285,10 @@ export function MediaResources({ projectId }: Props) {
         {/* =========================================================================
             PHẦN 2: QUẢN LÝ TÀI NGUYÊN MEDIA (DRIVE, CANVA, VIDEO, ẢNH)
         ========================================================================= */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col h-full">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              <Folder className="w-5 h-5 text-indigo-500" /> Kho Tài Nguyên Media
+              <Folder className="w-5 h-5 text-indigo-500" /> Tài Nguyên Media
             </h3>
             {canEdit && !showAddMedia && (
               <button onClick={() => setShowAddMedia(true)} className="flex items-center gap-1.5 bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-100 font-medium text-sm transition-colors">
@@ -309,7 +328,7 @@ export function MediaResources({ projectId }: Props) {
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
-                <button onClick={() => setShowAddMedia(false)} className="px-4 py-1.5 text-sm text-gray-600 hover:bg-white border border-transparent hover:border-gray-200 rounded-lg transition-colors">Hủy</button>
+                <button onClick={() => setShowAddMedia(false)} className="px-4 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">Hủy</button>
                 <button onClick={handleAddMedia} disabled={isSaving || !newMedia.title.trim() || !newMedia.url.trim()} className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5">
                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Lưu Tài Nguyên
                 </button>
@@ -318,32 +337,32 @@ export function MediaResources({ projectId }: Props) {
           )}
 
           {/* DANH SÁCH TÀI NGUYÊN */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-1" style={{ maxHeight: '600px' }}>
+          <div className="grid grid-cols-1 gap-3 overflow-y-auto pr-1 max-h-[600px] custom-scrollbar">
             {mediaItems.length === 0 && !showAddMedia ? (
-              <div className="col-span-2 py-8 text-center text-gray-400 border-2 border-dashed border-gray-100 rounded-xl">Chưa có tài liệu Media nào.</div>
+              <div className="py-10 text-center text-gray-400 border-2 border-dashed border-gray-100 rounded-xl">Chưa có tài liệu Media nào.</div>
             ) : mediaItems.map((item) => (
-              <div key={item.id} className="group p-3.5 bg-white border border-gray-200 rounded-xl hover:shadow-md hover:border-indigo-200 transition-all flex flex-col h-full relative">
+              <div key={item.id} className="group p-4 bg-white border border-gray-100 rounded-xl hover:shadow-md hover:border-indigo-200 transition-all flex flex-col relative">
                 <div className="flex items-start gap-3 mb-2">
-                  <div className="p-2 bg-gray-50 rounded-lg shrink-0">
+                  <div className="p-2.5 bg-gray-50 rounded-xl shrink-0 border border-gray-100">
                     {getMediaIcon(item.type)}
                   </div>
-                  <div className="flex-1 min-w-0 pr-6">
+                  <div className="flex-1 min-w-0 pr-8">
                     <h4 className="font-bold text-gray-800 text-sm truncate" title={item.title}>{item.title}</h4>
-                    <p className="text-xs text-gray-500 uppercase tracking-wider font-medium mt-0.5">{item.type}</p>
+                    <p className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mt-1">{item.type}</p>
                   </div>
                 </div>
                 
-                {item.description && <p className="text-xs text-gray-600 mb-3 line-clamp-2">{item.description}</p>}
+                {item.description && <p className="text-sm text-gray-600 mb-3 ml-12 line-clamp-2">{item.description}</p>}
                 
-                <div className="mt-auto pt-3 border-t border-gray-100 flex items-center justify-between">
-                  <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                    Truy cập ngay <ExternalLink className="w-3 h-3" />
+                <div className="mt-2 ml-12">
+                  <a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors -ml-3">
+                    <ExternalLink className="w-4 h-4" /> Truy cập liên kết
                   </a>
                 </div>
 
                 {/* Nút xóa (Hiện khi hover) */}
                 {canDelete && (
-                  <button onClick={() => handleDeleteMedia(item.id)} className="absolute top-2 right-2 p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all" title="Xóa tài nguyên">
+                  <button onClick={() => handleDeleteMedia(item.id)} className="absolute top-3 right-3 p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all" title="Xóa tài nguyên">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 )}
