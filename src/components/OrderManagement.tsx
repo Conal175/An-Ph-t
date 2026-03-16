@@ -21,7 +21,7 @@ export function OrderManagement({ projectId }: Props) {
   const canEdit = checkPermission('orders', 'edit');
   const canDelete = checkPermission('orders', 'delete');
 
-  // ================= QUẢN LÝ CÁC BẢNG (SHEETS) BẰNG LOCALSTORAGE CHỐNG MẤT DỮ LIỆU =================
+  // ================= QUẢN LÝ CÁC BẢNG (SHEETS) =================
   const [localNewSheets, setLocalNewSheets] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(`custom_sheets_${projectId}`);
@@ -34,24 +34,20 @@ export function OrderManagement({ projectId }: Props) {
     localStorage.setItem(`custom_sheets_${projectId}`, JSON.stringify(sheets));
   };
 
-  // Tổng hợp danh sách bảng từ Dữ liệu thực tế + Dữ liệu tạo bằng tay
   const allSheetsFromData = Array.from(new Set(orders.map(o => o.sheetName || 'Bảng chung').filter(s => s !== 'Bảng chung')));
   const combinedSheets = Array.from(new Set([...allSheetsFromData, ...localNewSheets]));
   
-  // Nếu dự án trống trơn, tạo mặc định 1 bảng cho nhân viên
-  if (combinedSheets.length === 0) combinedSheets.push('Team 1');
-
-  // Bảng chung chỉ hiện cho Admin
+  // Xóa bỏ "Team 1" mặc định. Admin luôn có Bảng chung. User thường chỉ thấy bảng nếu đã tạo.
   const allTabs = isAdmin ? ['Bảng chung', ...combinedSheets] : combinedSheets;
 
-  const [activeSheet, setActiveSheet] = useState<string>(isAdmin ? 'Bảng chung' : combinedSheets[0]);
+  const [activeSheet, setActiveSheet] = useState<string>(allTabs[0] || '');
 
-  // Chặn nhân viên ở lại "Bảng chung" nếu họ bị mất quyền Admin
+  // Tự động chuyển tab nếu tab hiện tại bị xóa hoặc không hợp lệ
   useEffect(() => {
-    if (!isAdmin && activeSheet === 'Bảng chung') {
-      setActiveSheet(combinedSheets[0]);
+    if (allTabs.length > 0 && !allTabs.includes(activeSheet)) {
+      setActiveSheet(allTabs[0]);
     }
-  }, [isAdmin, activeSheet]);
+  }, [allTabs, activeSheet]);
 
   // ================= XỬ LÝ NGÀY THÁNG =================
   const getLocalDateString = (d: Date) => {
@@ -82,11 +78,15 @@ export function OrderManagement({ projectId }: Props) {
     productName: '', quantity: 1, price: 0, total: 0, notes: '', shippingDate: '', trackingCode: '', status: 'Chưa xử lý', shippingFee: 0
   });
 
+  // ================= STATE SỬA TRỰC TIẾP =================
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null); 
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<Order>>({});
   const [focusedField, setFocusedField] = useState<keyof Order | null>(null); 
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  
+  // Quản lý Focus thông minh cho các ô Input
+  const inputRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
 
   useEffect(() => { loadOrders(); }, [projectId]);
 
@@ -98,7 +98,6 @@ export function OrderManagement({ projectId }: Props) {
   };
 
   // ================= LỌC DỮ LIỆU HIỂN THỊ =================
-  // Bảng chung lấy TẤT CẢ, bảng con lấy đúng dữ liệu của bảng đó
   const currentSheetOrders = activeSheet === 'Bảng chung' ? orders : orders.filter(o => (o.sheetName || 'Bảng chung') === activeSheet);
 
   const filteredOrders = currentSheetOrders.filter(o => {
@@ -155,7 +154,7 @@ export function OrderManagement({ projectId }: Props) {
 
   // ================= XỬ LÝ THÊM MỚI (MODAL) =================
   const openAddModal = () => {
-    const targetSheet = activeSheet === 'Bảng chung' ? combinedSheets[0] : activeSheet;
+    const targetSheet = activeSheet === 'Bảng chung' ? combinedSheets[0] || '' : activeSheet;
     setAddFormData({
       sheetName: targetSheet, orderDate: todayString, source: '', customerInfo: '', address: '',
       productName: '', quantity: 1, price: 0, total: 0, notes: '', shippingDate: '', trackingCode: '', status: 'Chưa xử lý', shippingFee: 0
@@ -170,15 +169,21 @@ export function OrderManagement({ projectId }: Props) {
   const handleSaveAdd = async () => {
     if (!addFormData.customerInfo.trim() || !canEdit) return;
     setIsSavingAdd(true);
-    const newOrder = await insertOrder({ projectId, ...addFormData });
+    // Nếu chưa có bảng nào (bị rỗng), tự động lưu vào bảng "Mặc định"
+    const finalSheetName = addFormData.sheetName || (isAdmin ? 'Bảng chung' : 'Bảng Mặc định');
+    
+    const newOrder = await insertOrder({ projectId, ...addFormData, sheetName: finalSheetName });
     if (newOrder) {
       setOrders([newOrder, ...orders]);
+      if (!allTabs.includes(finalSheetName) && finalSheetName !== 'Bảng chung') {
+        saveLocalSheets([...localNewSheets, finalSheetName]);
+      }
       setShowAddModal(false);
     }
     setIsSavingAdd(false);
   };
 
-  // ================= XỬ LÝ SỬA TRỰC TIẾP =================
+  // ================= XỬ LÝ SỬA TRỰC TIẾP VỚI AUTOFOCUS NHẠY BÉN =================
   useEffect(() => {
     if (editingRowId && editFormData.quantity !== undefined && editFormData.price !== undefined) {
       setEditFormData(prev => ({ ...prev, total: (prev.quantity || 0) * (prev.price || 0) }));
@@ -191,6 +196,14 @@ export function OrderManagement({ projectId }: Props) {
     setEditFormData({ ...order });
     setFocusedField(field);
     setSelectedRowId(order.id);
+
+    // Chờ React render các ô Input xong thì focus luôn vào ô được nhấp
+    if (field) {
+      setTimeout(() => {
+        const el = inputRefs.current[field];
+        if (el) el.focus();
+      }, 50);
+    }
   };
 
   const cancelInlineEdit = () => {
@@ -341,199 +354,215 @@ export function OrderManagement({ projectId }: Props) {
         )}
       </div>
 
-      {/* HEADER & TOP CONTROLS */}
-      <div className="flex-none flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-b-2xl shadow-sm border border-gray-100 mt-0">
-        <div>
-          <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-            Đang xem: <span className="text-indigo-600">{activeSheet}</span>
-            {isAdmin && (
-              <button 
-                onClick={handleDeleteSheet} 
-                className="p-1.5 ml-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                title={`Xóa toàn bộ dữ liệu của ${activeSheet === 'Bảng chung' ? 'TẤT CẢ CÁC BẢNG' : 'bảng này'}`}
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            )}
-          </h2>
-          <p className="text-sm text-gray-500 mt-1">Tìm thấy {filteredOrders.length} đơn hàng trong bảng này</p>
-        </div>
-        
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => setShowFilters(!showFilters)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${showFilters ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
-            <Filter className="w-4 h-4" /> Bộ lọc {(filters.customer || filters.product || filters.tracking || filters.status) && <span className="w-2 h-2 rounded-full bg-red-500"></span>}
-          </button>
-          <div className="w-px h-8 bg-gray-200 mx-1"></div>
-          <button onClick={handleExportExcel} className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-50 rounded-xl border border-transparent hover:border-green-200">
-            <Download className="w-4 h-4" /> Xuất
-          </button>
+      {/* GIAO DIỆN TRỐNG (NẾU CHƯA CÓ BẢNG NÀO) */}
+      {allTabs.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center bg-white rounded-b-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+            <ShoppingBag className="w-10 h-10 text-gray-300" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-700 mb-2">Hiện chưa có thông tin</h2>
+          <p className="text-gray-500 mb-6">Chưa có bảng dữ liệu đơn hàng nào được tạo.</p>
           {canEdit && (
-            <>
-              <button onClick={() => fileInputRef.current?.click()} disabled={isImporting || activeSheet === 'Bảng chung'} className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border border-transparent transition-colors ${activeSheet === 'Bảng chung' ? 'text-gray-400 bg-gray-100 cursor-not-allowed' : 'text-blue-700 hover:bg-blue-50 hover:border-blue-200 disabled:opacity-50'}`} title={activeSheet === 'Bảng chung' ? 'Bạn phải chọn một bảng cụ thể để nhập file' : 'Nhập file Excel'}>
-                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Nhập
-              </button>
-              <input type="file" ref={fileInputRef} onChange={handleImportExcel} accept=".xlsx, .xls, .csv" className="hidden" />
-              
-              <button onClick={openAddModal} className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-5 py-2 rounded-xl hover:from-indigo-700 hover:to-blue-700 font-medium shadow-md transition-all">
-                <Plus className="w-4 h-4" /> Thêm Đơn
-              </button>
-            </>
+            <button onClick={handleAddNewSheet} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 font-medium shadow-md transition-all">
+              <Plus className="w-5 h-5" /> Tạo Bảng Mới Ngay
+            </button>
           )}
         </div>
-      </div>
-
-      {/* FILTER PANEL */}
-      {showFilters && (
-        <div className="flex-none bg-white p-4 rounded-2xl shadow-sm border border-gray-100 animate-in slide-in-from-top-2">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-gray-700 flex items-center gap-2"><Filter className="w-4 h-4" /> Lọc tìm kiếm chi tiết</h3>
-            <button onClick={clearFilters} className="text-sm text-red-500 hover:text-red-700 flex items-center gap-1"><RefreshCcw className="w-3 h-3" /> Xem tất cả</button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 text-sm">
-            <div><label className="block text-xs text-gray-500 mb-1">Từ ngày</label><input type="date" value={filters.dateFrom} onChange={e => setFilters({...filters, dateFrom: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Đến ngày</label><input type="date" value={filters.dateTo} onChange={e => setFilters({...filters, dateTo: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Tên khách / SĐT</label><input type="text" placeholder="Tìm..." value={filters.customer} onChange={e => setFilters({...filters, customer: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Mã vận đơn</label><input type="text" placeholder="Tìm..." value={filters.tracking} onChange={e => setFilters({...filters, tracking: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Nguồn (Page...)</label><input type="text" placeholder="Tìm..." value={filters.source} onChange={e => setFilters({...filters, source: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
-            <div><label className="block text-xs text-gray-500 mb-1">Sản phẩm</label><input type="text" placeholder="Tìm..." value={filters.product} onChange={e => setFilters({...filters, product: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+      ) : (
+        <>
+          {/* HEADER & TOP CONTROLS */}
+          <div className="flex-none flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-b-2xl shadow-sm border border-gray-100 mt-0">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Trạng thái</label>
-              <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none bg-white">
-                <option value="">Tất cả trạng thái</option>
-                {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
+              <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                Đang xem: <span className="text-indigo-600">{activeSheet}</span>
+                {isAdmin && (
+                  <button 
+                    onClick={handleDeleteSheet} 
+                    className="p-1.5 ml-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title={`Xóa toàn bộ dữ liệu của ${activeSheet === 'Bảng chung' ? 'TẤT CẢ CÁC BẢNG' : 'bảng này'}`}
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                )}
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">Tìm thấy {filteredOrders.length} đơn hàng trong bảng này</p>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => setShowFilters(!showFilters)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${showFilters ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+                <Filter className="w-4 h-4" /> Bộ lọc {(filters.customer || filters.product || filters.tracking || filters.status) && <span className="w-2 h-2 rounded-full bg-red-500"></span>}
+              </button>
+              <div className="w-px h-8 bg-gray-200 mx-1"></div>
+              <button onClick={handleExportExcel} className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-green-700 hover:bg-green-50 rounded-xl border border-transparent hover:border-green-200">
+                <Download className="w-4 h-4" /> Xuất
+              </button>
+              {canEdit && (
+                <>
+                  <button onClick={() => fileInputRef.current?.click()} disabled={isImporting || activeSheet === 'Bảng chung'} className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl border border-transparent transition-colors ${activeSheet === 'Bảng chung' ? 'text-gray-400 bg-gray-100 cursor-not-allowed' : 'text-blue-700 hover:bg-blue-50 hover:border-blue-200 disabled:opacity-50'}`} title={activeSheet === 'Bảng chung' ? 'Bạn phải chọn một bảng cụ thể để nhập file' : 'Nhập file Excel'}>
+                    {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Nhập
+                  </button>
+                  <input type="file" ref={fileInputRef} onChange={handleImportExcel} accept=".xlsx, .xls, .csv" className="hidden" />
+                  
+                  <button onClick={openAddModal} className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-5 py-2 rounded-xl hover:from-indigo-700 hover:to-blue-700 font-medium shadow-md transition-all">
+                    <Plus className="w-4 h-4" /> Thêm Đơn
+                  </button>
+                </>
+              )}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* KHUNG BẢNG CHÍNH */}
-      <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col w-full">
-        <div className="flex-1 overflow-auto relative w-full">
-          <table className="w-full text-sm text-left whitespace-nowrap min-w-max">
-            <thead className="sticky top-0 z-10 bg-gray-100 text-gray-700 font-semibold shadow-sm border-b border-gray-200">
-              <tr>
-                <th className="px-2 py-3 w-10 text-center border-r border-gray-200">#</th>
-                <th className="px-2 py-3 border-r border-gray-200">Ngày HĐ</th>
-                <th className="px-2 py-3 border-r border-gray-200 min-w-[100px]">Nguồn</th>
-                {/* HIỂN THỊ CỘT THUỘC BẢNG KHI Ở BẢNG CHUNG */}
-                {activeSheet === 'Bảng chung' && <th className="px-2 py-3 border-r border-gray-200 min-w-[120px] text-indigo-700">Thuộc Bảng</th>}
-                <th className="px-2 py-3 border-r border-gray-200 min-w-[180px]">Khách hàng (Tên-SĐT)</th>
-                <th className="px-2 py-3 border-r border-gray-200 min-w-[200px]">Địa chỉ giao</th>
-                <th className="px-2 py-3 border-r border-gray-200 min-w-[180px]">Sản phẩm</th>
-                <th className="px-2 py-3 border-r border-gray-200 w-12 text-center">SL</th>
-                <th className="px-2 py-3 border-r border-gray-200 text-right min-w-[90px]">Đơn giá</th>
-                <th className="px-2 py-3 border-r border-gray-200 text-right min-w-[90px]">Tổng thu</th>
-                <th className="px-2 py-3 border-r border-gray-200 min-w-[110px]">Mã VĐ</th>
-                <th className="px-2 py-3 border-r border-gray-200 min-w-[130px]">Trạng thái</th>
-                <th className="px-2 py-3 border-r border-gray-200 text-right min-w-[90px]">Phí Ship</th>
-                <th className="px-2 py-3 border-r border-gray-200 min-w-[150px]">Ghi chú</th>
-                {(canEdit || canDelete) && <th className="px-2 py-3 text-center sticky right-0 bg-gray-100 shadow-[-5px_0_10px_rgba(0,0,0,0.05)]">Thao tác</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredOrders.length === 0 ? (
-                <tr><td colSpan={15} className="px-4 py-12 text-center text-gray-500 font-medium">Bảng này hiện chưa có đơn hàng nào.</td></tr>
-              ) : filteredOrders.map((order, index) => {
-                const isEditing = editingRowId === order.id;
-                const isSelected = selectedRowId === order.id;
+          {/* FILTER PANEL */}
+          {showFilters && (
+            <div className="flex-none bg-white p-4 rounded-2xl shadow-sm border border-gray-100 animate-in slide-in-from-top-2">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-700 flex items-center gap-2"><Filter className="w-4 h-4" /> Lọc tìm kiếm chi tiết</h3>
+                <button onClick={clearFilters} className="text-sm text-red-500 hover:text-red-700 flex items-center gap-1"><RefreshCcw className="w-3 h-3" /> Xem tất cả</button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 text-sm">
+                <div><label className="block text-xs text-gray-500 mb-1">Từ ngày</label><input type="date" value={filters.dateFrom} onChange={e => setFilters({...filters, dateFrom: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">Đến ngày</label><input type="date" value={filters.dateTo} onChange={e => setFilters({...filters, dateTo: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">Tên khách / SĐT</label><input type="text" placeholder="Tìm..." value={filters.customer} onChange={e => setFilters({...filters, customer: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">Mã vận đơn</label><input type="text" placeholder="Tìm..." value={filters.tracking} onChange={e => setFilters({...filters, tracking: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">Nguồn (Page...)</label><input type="text" placeholder="Tìm..." value={filters.source} onChange={e => setFilters({...filters, source: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                <div><label className="block text-xs text-gray-500 mb-1">Sản phẩm</label><input type="text" placeholder="Tìm..." value={filters.product} onChange={e => setFilters({...filters, product: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Trạng thái</label>
+                  <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-1 focus:ring-indigo-500 outline-none bg-white">
+                    <option value="">Tất cả trạng thái</option>
+                    {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
 
-                return (
-                  <tr 
-                    key={order.id} 
-                    onClick={() => setSelectedRowId(order.id)} 
-                    className={`transition-colors border-b border-gray-50 cursor-default ${
-                      isEditing ? 'bg-yellow-50' : 
-                      isSelected ? 'bg-indigo-50/70' : 'hover:bg-blue-50/40'
-                    }`}
-                  >
-                    <td className="px-2 py-2 text-center text-gray-400 border-r border-gray-100">{index + 1}</td>
-                    
-                    {isEditing ? (
-                      <>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'orderDate'} type="date" value={editFormData.orderDate || ''} onChange={e => setEditFormData({...editFormData, orderDate: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" /></td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'source'} type="text" value={editFormData.source || ''} onChange={e => setEditFormData({...editFormData, source: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Nguồn" /></td>
-                        {/* TRƯỜNG CHỈNH SỬA THUỘC BẢNG NÀO */}
-                        {activeSheet === 'Bảng chung' && (
-                          <td className="px-1 py-1 border-r border-gray-100">
-                            <select autoFocus={focusedField === 'sheetName'} value={editFormData.sheetName || ''} onChange={e => setEditFormData({...editFormData, sheetName: e.target.value})} className="w-full border border-purple-300 rounded p-1.5 text-xs font-medium text-purple-700 outline-none bg-purple-50">
-                              {combinedSheets.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
+          {/* KHUNG BẢNG CHÍNH */}
+          <div className="flex-1 min-h-0 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col w-full">
+            <div className="flex-1 overflow-auto relative w-full">
+              <table className="w-full text-sm text-left whitespace-nowrap min-w-max">
+                <thead className="sticky top-0 z-10 bg-gray-100 text-gray-700 font-semibold shadow-sm border-b border-gray-200">
+                  <tr>
+                    <th className="px-2 py-3 w-10 text-center border-r border-gray-200">#</th>
+                    <th className="px-2 py-3 border-r border-gray-200">Ngày HĐ</th>
+                    <th className="px-2 py-3 border-r border-gray-200 min-w-[100px]">Nguồn</th>
+                    {activeSheet === 'Bảng chung' && <th className="px-2 py-3 border-r border-gray-200 min-w-[120px] text-indigo-700">Thuộc Bảng</th>}
+                    <th className="px-2 py-3 border-r border-gray-200 min-w-[180px]">Khách hàng (Tên-SĐT)</th>
+                    <th className="px-2 py-3 border-r border-gray-200 min-w-[200px]">Địa chỉ giao</th>
+                    <th className="px-2 py-3 border-r border-gray-200 min-w-[180px]">Sản phẩm</th>
+                    <th className="px-2 py-3 border-r border-gray-200 w-12 text-center">SL</th>
+                    <th className="px-2 py-3 border-r border-gray-200 text-right min-w-[90px]">Đơn giá</th>
+                    <th className="px-2 py-3 border-r border-gray-200 text-right min-w-[90px]">Tổng thu</th>
+                    <th className="px-2 py-3 border-r border-gray-200 min-w-[110px]">Mã VĐ</th>
+                    <th className="px-2 py-3 border-r border-gray-200 min-w-[130px]">Trạng thái</th>
+                    <th className="px-2 py-3 border-r border-gray-200 text-right min-w-[90px]">Phí Ship</th>
+                    <th className="px-2 py-3 border-r border-gray-200 min-w-[150px]">Ghi chú</th>
+                    {(canEdit || canDelete) && <th className="px-2 py-3 text-center sticky right-0 bg-gray-100 shadow-[-5px_0_10px_rgba(0,0,0,0.05)]">Thao tác</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredOrders.length === 0 ? (
+                    <tr><td colSpan={15} className="px-4 py-12 text-center text-gray-500 font-medium">Bảng này hiện chưa có đơn hàng nào.</td></tr>
+                  ) : filteredOrders.map((order, index) => {
+                    const isEditing = editingRowId === order.id;
+                    const isSelected = selectedRowId === order.id;
+
+                    return (
+                      <tr 
+                        key={order.id} 
+                        onClick={() => setSelectedRowId(order.id)} 
+                        className={`transition-colors border-b border-gray-50 cursor-default ${
+                          isEditing ? 'bg-yellow-50' : 
+                          isSelected ? 'bg-indigo-50/70' : 'hover:bg-blue-50/40'
+                        }`}
+                      >
+                        <td className="px-2 py-2 text-center text-gray-400 border-r border-gray-100">{index + 1}</td>
+                        
+                        {isEditing ? (
+                          <>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['orderDate'] = el; }} type="date" value={editFormData.orderDate || ''} onChange={e => setEditFormData({...editFormData, orderDate: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['source'] = el; }} type="text" value={editFormData.source || ''} onChange={e => setEditFormData({...editFormData, source: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Nguồn" /></td>
+                            {activeSheet === 'Bảng chung' && (
+                              <td className="px-1 py-1 border-r border-gray-100">
+                                <select ref={el => { if(el) inputRefs.current['sheetName'] = el; }} value={editFormData.sheetName || ''} onChange={e => setEditFormData({...editFormData, sheetName: e.target.value})} className="w-full border border-purple-300 rounded p-1.5 text-xs font-medium text-purple-700 outline-none bg-purple-50">
+                                  {combinedSheets.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                              </td>
+                            )}
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['customerInfo'] = el; }} type="text" value={editFormData.customerInfo || ''} onChange={e => setEditFormData({...editFormData, customerInfo: e.target.value})} className="w-full border border-blue-500 rounded p-1.5 text-xs outline-none" placeholder="Tên - SĐT *"/></td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['address'] = el; }} type="text" value={editFormData.address || ''} onChange={e => setEditFormData({...editFormData, address: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Địa chỉ"/></td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['productName'] = el; }} type="text" value={editFormData.productName || ''} onChange={e => setEditFormData({...editFormData, productName: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Tên SP"/></td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['quantity'] = el; }} type="number" value={editFormData.quantity || 0} onChange={e => setEditFormData({...editFormData, quantity: Number(e.target.value)})} className="w-full border border-gray-300 rounded p-1.5 text-xs text-center focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['price'] = el; }} type="number" value={editFormData.price || 0} onChange={e => setEditFormData({...editFormData, price: Number(e.target.value)})} className="w-full border border-gray-300 rounded p-1.5 text-xs text-right focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input type="number" value={editFormData.total || 0} onChange={e => setEditFormData({...editFormData, total: Number(e.target.value)})} className="w-full border border-gray-300 bg-gray-100 rounded p-1.5 text-xs text-right font-bold text-green-700" readOnly title="Tự động tính"/></td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['trackingCode'] = el; }} type="text" value={editFormData.trackingCode || ''} onChange={e => setEditFormData({...editFormData, trackingCode: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs font-mono focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Mã VĐ"/></td>
+                            <td className="px-1 py-1 border-r border-gray-100">
+                              <select ref={el => { if(el) inputRefs.current['status'] = el; }} value={editFormData.status || ''} onChange={e => setEditFormData({...editFormData, status: e.target.value})} className="w-full border border-blue-400 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white font-medium text-blue-800">
+                                <option value="">Chọn trạng thái...</option>
+                                {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['shippingFee'] = el; }} type="number" value={editFormData.shippingFee || 0} onChange={e => setEditFormData({...editFormData, shippingFee: Number(e.target.value)})} className="w-full border border-gray-300 rounded p-1.5 text-xs text-right focus:ring-1 focus:ring-blue-500 outline-none" /></td>
+                            <td className="px-1 py-1 border-r border-gray-100"><input ref={el => { if(el) inputRefs.current['notes'] = el; }} type="text" value={editFormData.notes || ''} onChange={e => setEditFormData({...editFormData, notes: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Ghi chú"/></td>
+                          </>
+                        ) : (
+                          <>
+                            <td onDoubleClick={() => startInlineEdit(order, 'orderDate')} className="px-2 py-2 text-gray-700 border-r border-gray-100">{order.orderDate}</td>
+                            <td onDoubleClick={() => startInlineEdit(order, 'source')} className="px-2 py-2 text-gray-500 truncate max-w-[120px] border-r border-gray-100" title={order.source}>{order.source}</td>
+                            {activeSheet === 'Bảng chung' && (
+                              <td onDoubleClick={() => startInlineEdit(order, 'sheetName')} className="px-2 py-2 font-semibold text-purple-600 border-r border-gray-100 bg-purple-50/20 cursor-pointer hover:bg-purple-100 transition-colors" title="Click đúp để chuyển đơn sang bảng khác">{order.sheetName || 'Bảng chung'}</td>
+                            )}
+                            <td onDoubleClick={() => startInlineEdit(order, 'customerInfo')} className="px-2 py-2 font-semibold text-indigo-700 truncate max-w-[200px] border-r border-gray-100" title={order.customerInfo}>{order.customerInfo}</td>
+                            <td onDoubleClick={() => startInlineEdit(order, 'address')} className="px-2 py-2 text-gray-600 truncate max-w-[220px] border-r border-gray-100" title={order.address}>{order.address}</td>
+                            <td onDoubleClick={() => startInlineEdit(order, 'productName')} className="px-2 py-2 text-gray-800 font-medium truncate max-w-[200px] border-r border-gray-100" title={order.productName}>{order.productName}</td>
+                            <td onDoubleClick={() => startInlineEdit(order, 'quantity')} className="px-2 py-2 text-center font-medium border-r border-gray-100">{order.quantity}</td>
+                            <td onDoubleClick={() => startInlineEdit(order, 'price')} className="px-2 py-2 text-right text-gray-600 border-r border-gray-100">{formatMoney(order.price)}</td>
+                            <td className="px-2 py-2 text-right font-bold text-green-600 bg-green-50/50 border-r border-green-100">{formatMoney(order.total)}</td>
+                            <td onDoubleClick={() => startInlineEdit(order, 'trackingCode')} className="px-2 py-2 font-mono text-blue-600 border-r border-gray-100">{order.trackingCode}</td>
+                            
+                            <td 
+                              onClick={(e) => { e.stopPropagation(); setSelectedRowId(order.id); startInlineEdit(order, 'status'); }} 
+                              className="px-2 py-2 border-r border-gray-100 cursor-pointer hover:bg-blue-100 transition-colors"
+                              title="Click để đổi trạng thái"
+                            >
+                              <span className={`px-2 py-1 text-[11px] font-medium rounded-full border ${
+                                order.status === 'Phát thành công' ? 'bg-green-50 text-green-700 border-green-200' :
+                                order.status === 'Đang hoàn' || order.status === 'Hủy' ? 'bg-red-50 text-red-700 border-red-200' :
+                                order.status === 'Đang giao hàng' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                'bg-gray-50 text-gray-600 border-gray-200'
+                              }`}>
+                                {order.status || 'Chưa xử lý'}
+                              </span>
+                            </td>
+                            
+                            <td onDoubleClick={() => startInlineEdit(order, 'shippingFee')} className="px-2 py-2 text-right text-gray-500 border-r border-gray-100">{formatMoney(order.shippingFee)}</td>
+                            <td onDoubleClick={() => startInlineEdit(order, 'notes')} className="px-2 py-2 text-gray-500 truncate max-w-[200px] border-r border-gray-100" title={order.notes}>{order.notes}</td>
+                          </>
+                        )}
+
+                        {(canEdit || canDelete) && (
+                          <td className={`px-2 py-2 text-center sticky right-0 shadow-[-5px_0_10px_rgba(0,0,0,0.03)] border-l border-gray-200 ${isEditing ? 'bg-yellow-50' : isSelected ? 'bg-indigo-50/90' : 'bg-white'}`}>
+                            {isEditing ? (
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button onClick={(e) => { e.stopPropagation(); saveInlineEdit(); }} disabled={isSavingEdit} className="p-1.5 text-white bg-green-500 hover:bg-green-600 rounded-lg shadow-sm" title="Lưu lại"><Check className="w-4 h-4" /></button>
+                                <button onClick={(e) => { e.stopPropagation(); cancelInlineEdit(); }} className="p-1.5 text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg" title="Hủy"><X className="w-4 h-4" /></button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1.5">
+                                {canEdit && <button onClick={(e) => { e.stopPropagation(); startInlineEdit(order, 'customerInfo'); }} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Chỉnh sửa"><Edit2 className="w-4 h-4" /></button>}
+                                {canDelete && <button onClick={(e) => { e.stopPropagation(); handleDelete(order.id); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="Xóa"><Trash2 className="w-4 h-4" /></button>}
+                              </div>
+                            )}
                           </td>
                         )}
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'customerInfo'} type="text" value={editFormData.customerInfo || ''} onChange={e => setEditFormData({...editFormData, customerInfo: e.target.value})} className="w-full border border-blue-500 rounded p-1.5 text-xs outline-none" placeholder="Tên - SĐT *"/></td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'address'} type="text" value={editFormData.address || ''} onChange={e => setEditFormData({...editFormData, address: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Địa chỉ"/></td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'productName'} type="text" value={editFormData.productName || ''} onChange={e => setEditFormData({...editFormData, productName: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Tên SP"/></td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'quantity'} type="number" value={editFormData.quantity || 0} onChange={e => setEditFormData({...editFormData, quantity: Number(e.target.value)})} className="w-full border border-gray-300 rounded p-1.5 text-xs text-center focus:ring-1 focus:ring-blue-500 outline-none" /></td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'price'} type="number" value={editFormData.price || 0} onChange={e => setEditFormData({...editFormData, price: Number(e.target.value)})} className="w-full border border-gray-300 rounded p-1.5 text-xs text-right focus:ring-1 focus:ring-blue-500 outline-none" /></td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input type="number" value={editFormData.total || 0} onChange={e => setEditFormData({...editFormData, total: Number(e.target.value)})} className="w-full border border-gray-300 bg-gray-100 rounded p-1.5 text-xs text-right font-bold text-green-700" readOnly title="Tự động tính"/></td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'trackingCode'} type="text" value={editFormData.trackingCode || ''} onChange={e => setEditFormData({...editFormData, trackingCode: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs font-mono focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Mã VĐ"/></td>
-                        <td className="px-1 py-1 border-r border-gray-100">
-                          <select autoFocus={focusedField === 'status'} value={editFormData.status || ''} onChange={e => setEditFormData({...editFormData, status: e.target.value})} className="w-full border border-blue-400 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white font-medium text-blue-800">
-                            <option value="">Chọn trạng thái...</option>
-                            {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'shippingFee'} type="number" value={editFormData.shippingFee || 0} onChange={e => setEditFormData({...editFormData, shippingFee: Number(e.target.value)})} className="w-full border border-gray-300 rounded p-1.5 text-xs text-right focus:ring-1 focus:ring-blue-500 outline-none" /></td>
-                        <td className="px-1 py-1 border-r border-gray-100"><input autoFocus={focusedField === 'notes'} type="text" value={editFormData.notes || ''} onChange={e => setEditFormData({...editFormData, notes: e.target.value})} className="w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Ghi chú"/></td>
-                      </>
-                    ) : (
-                      <>
-                        <td onDoubleClick={() => startInlineEdit(order, 'orderDate')} className="px-2 py-2 text-gray-700 border-r border-gray-100">{order.orderDate}</td>
-                        <td onDoubleClick={() => startInlineEdit(order, 'source')} className="px-2 py-2 text-gray-500 truncate max-w-[120px] border-r border-gray-100" title={order.source}>{order.source}</td>
-                        {activeSheet === 'Bảng chung' && (
-                          <td onDoubleClick={() => startInlineEdit(order, 'sheetName')} className="px-2 py-2 font-semibold text-purple-600 border-r border-gray-100 bg-purple-50/20">{order.sheetName || 'Bảng chung'}</td>
-                        )}
-                        <td onDoubleClick={() => startInlineEdit(order, 'customerInfo')} className="px-2 py-2 font-semibold text-indigo-700 truncate max-w-[200px] border-r border-gray-100" title={order.customerInfo}>{order.customerInfo}</td>
-                        <td onDoubleClick={() => startInlineEdit(order, 'address')} className="px-2 py-2 text-gray-600 truncate max-w-[220px] border-r border-gray-100" title={order.address}>{order.address}</td>
-                        <td onDoubleClick={() => startInlineEdit(order, 'productName')} className="px-2 py-2 text-gray-800 font-medium truncate max-w-[200px] border-r border-gray-100" title={order.productName}>{order.productName}</td>
-                        <td onDoubleClick={() => startInlineEdit(order, 'quantity')} className="px-2 py-2 text-center font-medium border-r border-gray-100">{order.quantity}</td>
-                        <td onDoubleClick={() => startInlineEdit(order, 'price')} className="px-2 py-2 text-right text-gray-600 border-r border-gray-100">{formatMoney(order.price)}</td>
-                        <td className="px-2 py-2 text-right font-bold text-green-600 bg-green-50/50 border-r border-green-100">{formatMoney(order.total)}</td>
-                        <td onDoubleClick={() => startInlineEdit(order, 'trackingCode')} className="px-2 py-2 font-mono text-blue-600 border-r border-gray-100">{order.trackingCode}</td>
-                        
-                        <td 
-                          onClick={(e) => { e.stopPropagation(); setSelectedRowId(order.id); startInlineEdit(order, 'status'); }} 
-                          className="px-2 py-2 border-r border-gray-100 cursor-pointer hover:bg-blue-100 transition-colors"
-                          title="Click để đổi trạng thái"
-                        >
-                          <span className={`px-2 py-1 text-[11px] font-medium rounded-full border ${
-                            order.status === 'Phát thành công' ? 'bg-green-50 text-green-700 border-green-200' :
-                            order.status === 'Đang hoàn' || order.status === 'Hủy' ? 'bg-red-50 text-red-700 border-red-200' :
-                            order.status === 'Đang giao hàng' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                            'bg-gray-50 text-gray-600 border-gray-200'
-                          }`}>
-                            {order.status || 'Chưa xử lý'}
-                          </span>
-                        </td>
-                        
-                        <td onDoubleClick={() => startInlineEdit(order, 'shippingFee')} className="px-2 py-2 text-right text-gray-500 border-r border-gray-100">{formatMoney(order.shippingFee)}</td>
-                        <td onDoubleClick={() => startInlineEdit(order, 'notes')} className="px-2 py-2 text-gray-500 truncate max-w-[200px] border-r border-gray-100" title={order.notes}>{order.notes}</td>
-                      </>
-                    )}
-
-                    {(canEdit || canDelete) && (
-                      <td className={`px-2 py-2 text-center sticky right-0 shadow-[-5px_0_10px_rgba(0,0,0,0.03)] border-l border-gray-200 ${isEditing ? 'bg-yellow-50' : isSelected ? 'bg-indigo-50/90' : 'bg-white'}`}>
-                        {isEditing ? (
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button onClick={(e) => { e.stopPropagation(); saveInlineEdit(); }} disabled={isSavingEdit} className="p-1.5 text-white bg-green-500 hover:bg-green-600 rounded-lg shadow-sm" title="Lưu lại"><Check className="w-4 h-4" /></button>
-                            <button onClick={(e) => { e.stopPropagation(); cancelInlineEdit(); }} className="p-1.5 text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-lg" title="Hủy"><X className="w-4 h-4" /></button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center gap-1.5">
-                            {canEdit && <button onClick={(e) => { e.stopPropagation(); startInlineEdit(order, 'customerInfo'); }} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Chỉnh sửa"><Edit2 className="w-4 h-4" /></button>}
-                            {canDelete && <button onClick={(e) => { e.stopPropagation(); handleDelete(order.id); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="Xóa"><Trash2 className="w-4 h-4" /></button>}
-                          </div>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* MODAL THÊM ĐƠN HÀNG MỚI */}
       {showAddModal && (
