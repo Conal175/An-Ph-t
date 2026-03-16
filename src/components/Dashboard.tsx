@@ -1,385 +1,233 @@
-import React, { useState, useMemo } from 'react';
-import type { Project, DailyLog, ActionPhase } from '../types';
-import { useSyncData } from '../store';
+import React, { useState, useEffect } from 'react';
 import { 
-  TrendingUp, 
-  BarChart3, 
-  MessageSquare, 
-  ShoppingCart, 
-  CheckCircle, 
-  Clock, 
-  AlertTriangle,
-  Rocket,
-  Calendar,
-  Eye,
-  MousePointer,
-  Receipt,
-  DollarSign,
-  Loader2,
-  Filter
+  BarChart3, TrendingUp, ShoppingBag, DollarSign, 
+  Activity, Package, AlertCircle, Calendar, Loader2 
 } from 'lucide-react';
+import { fetchDailyLogs, fetchOrders, DailyLog, Order } from '../store';
 
 interface Props {
-  project: Project;
+  project: {
+    id: string;
+    name: string;
+    description?: string;
+  };
 }
 
-const calculateCTR = (clicks: number, impressions: number) => {
-  return impressions > 0 ? (clicks / impressions) * 100 : 0;
-};
-
-const calculateCPA = (spend: number, messages: number) => {
-  return messages > 0 ? spend / messages : 0;
-};
-
-const calculateCPO = (spend: number, orders: number) => {
-  return orders > 0 ? spend / orders : 0;
-};
-
-const calculateCR = (orders: number, messages: number) => {
-  return messages > 0 ? (orders / messages) * 100 : 0;
-};
-
 export function Dashboard({ project }: Props) {
-  const { data: logs, loading: logsLoading } = useSyncData<DailyLog>(project.id, 'dailyLogs', []);
-  const { data: actionPlan, loading: planLoading } = useSyncData<ActionPhase>(project.id, 'actionPhases', []);
-
-  // State cho bộ lọc thời gian (Mặc định: Từ đầu tháng đến hiện tại)
-  const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().split('T')[0];
-  });
+  const [logs, setLogs] = useState<DailyLog[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   
-  const [endDate, setEndDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
+  const today = new Date();
+  const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState(today.getFullYear());
+
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      setLoading(true);
+      const [logsData, ordersData] = await Promise.all([
+        fetchDailyLogs(project.id),
+        fetchOrders(project.id)
+      ]);
+      setLogs(logsData);
+      setOrders(ordersData);
+      setLoading(false);
+    };
+    loadDashboardData();
+  }, [project.id]);
+
+  // Lọc dữ liệu theo tháng đang chọn
+  const currentMonthLogs = logs.filter(l => l.month === selectedMonth && l.year === selectedYear);
+  const currentMonthOrders = orders.filter(o => {
+    if (!o.orderDate) return false;
+    const d = new Date(o.orderDate);
+    return (d.getMonth() + 1) === selectedMonth && d.getFullYear() === selectedYear;
   });
 
-  // Lọc logs dựa trên khoảng thời gian
-  const filteredLogs = useMemo(() => {
-    if (!startDate || !endDate) return logs;
-    
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+  // Tính toán Chỉ số Quảng Cáo (Ads)
+  const totalSpend = currentMonthLogs.reduce((sum, l) => sum + (l.spend || 0), 0);
+  const totalImpressions = currentMonthLogs.reduce((sum, l) => sum + (l.impressions || 0), 0);
+  const totalClicks = currentMonthLogs.reduce((sum, l) => sum + (l.clicks || 0), 0);
+  const totalMessages = currentMonthLogs.reduce((sum, l) => sum + (l.messages || 0), 0);
+  
+  const cpa = totalMessages > 0 ? totalSpend / totalMessages : 0;
+  const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 
-    return logs.filter(log => {
-      const logDate = new Date(log.year, log.month - 1, log.day);
-      return logDate >= start && logDate <= end;
-    });
-  }, [logs, startDate, endDate]);
+  // Tính toán Chỉ số Đơn Hàng (Orders)
+  const totalRevenue = currentMonthOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+  const totalOrdersCount = currentMonthOrders.length;
+  
+  const successOrders = currentMonthOrders.filter(o => o.status.toLowerCase().includes('thành công') || o.status.toLowerCase().includes('đã nhận')).length;
+  const returningOrders = currentMonthOrders.filter(o => o.status.toLowerCase().includes('hoàn') || o.status.toLowerCase().includes('hủy')).length;
+  const pendingOrders = totalOrdersCount - successOrders - returningOrders;
 
-  if (logsLoading || planLoading) {
+  const successRate = totalOrdersCount > 0 ? (successOrders / totalOrdersCount) * 100 : 0;
+  const returnRate = totalOrdersCount > 0 ? (returningOrders / totalOrdersCount) * 100 : 0;
+
+  const formatMoney = (val: number) => new Intl.NumberFormat('vi-VN').format(val) + 'đ';
+
+  if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-gray-500">
-        <Loader2 className="w-8 h-8 animate-spin mb-4 text-blue-500" />
-        <p>Đang tải dữ liệu tổng quan dự án...</p>
+      <div className="py-24 flex flex-col items-center justify-center text-gray-500">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-4" />
+        <p>Đang tổng hợp dữ liệu tổng quan...</p>
       </div>
     );
   }
 
-  // Task Stats (Giữ nguyên toàn bộ project)
-  const allTasks = actionPlan.flatMap(phase => phase.subPhases.flatMap(sp => sp.tasks));
-  const totalTasks = allTasks.length;
-  const doneTasks = allTasks.filter(t => t.status === 'completed').length;
-  const inProgressTasks = allTasks.filter(t => t.status === 'in_progress').length;
-  const pendingTasks = allTasks.filter(t => t.status === 'pending').length;
-  const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
-
-  // KPI Stats (Tính trên filteredLogs)
-  const totalSpend = filteredLogs.reduce((s, l) => s + (l.spend || 0), 0);
-  const totalImpressions = filteredLogs.reduce((s, l) => s + (l.impressions || 0), 0);
-  const totalClicks = filteredLogs.reduce((s, l) => s + (l.clicks || 0), 0);
-  const totalMessages = filteredLogs.reduce((s, l) => s + (l.messages || 0), 0);
-  const totalOrders = filteredLogs.reduce((s, l) => s + (l.orders || 0), 0);
-  const totalRevenue = filteredLogs.reduce((s, l) => s + (l.revenue || 0), 0);
-
-  const avgCTR = calculateCTR(totalClicks, totalImpressions);
-  const avgCPA = calculateCPA(totalSpend, totalMessages);
-  const avgCPO = calculateCPO(totalSpend, totalOrders);
-  const avgCloseRate = calculateCR(totalOrders, totalMessages);
-  const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
-
-  const createdDate = new Date(project.createdAt);
-  const now = new Date();
-  const daysSinceCreated = Math.max(0, Math.ceil((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)));
-
   return (
-    <div className="space-y-6">
-      {/* Project Header */}
-      <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 rounded-2xl p-8 text-white shadow-xl">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
-              <Rocket className="w-8 h-8 text-yellow-300" />
-              <h1 className="text-3xl font-bold">{project.name}</h1>
-            </div>
-            {project.description && (
-              <p className="text-blue-100 text-lg mb-6 max-w-3xl">{project.description}</p>
-            )}
-          </div>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <BarChart3 className="w-7 h-7 text-blue-600" /> Tổng Quan Dự Án
+          </h2>
+          <p className="text-gray-500 mt-1">{project.name}</p>
         </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-          <div className="bg-white/15 backdrop-blur rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <Calendar className="w-8 h-8 text-pink-300" />
-              <div>
-                <p className="text-blue-200 text-sm">Ngày Tạo Dự Án</p>
-                <p className="text-xl font-bold">{createdDate.toLocaleDateString('vi-VN')}</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white/15 backdrop-blur rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <Clock className="w-8 h-8 text-green-300" />
-              <div>
-                <p className="text-blue-200 text-sm">Đã Hoạt Động</p>
-                <p className="text-xl font-bold">{daysSinceCreated} ngày</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white/15 backdrop-blur rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <BarChart3 className="w-8 h-8 text-yellow-300" />
-              <div>
-                <p className="text-blue-200 text-sm">Tổng Số Báo Cáo</p>
-                <p className="text-xl font-bold">{logs.length} ngày</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* BỘ LỌC THỜI GIAN */}
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <div className="flex items-center gap-2 text-indigo-600 font-semibold">
-          <Filter className="w-5 h-5" />
-          <span>Lọc chỉ số quảng cáo theo khoảng thời gian:</span>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">Từ</span>
-            <input 
-              type="date" 
-              value={startDate} 
-              onChange={e => setStartDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">Đến</span>
-            <input 
-              type="date" 
-              value={endDate} 
-              onChange={e => setEndDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-            />
-          </div>
-          <div className="ml-auto text-sm text-gray-500">
-            Tìm thấy <strong className="text-indigo-600">{filteredLogs.length}</strong> báo cáo
-          </div>
-        </div>
-      </div>
-
-      {/* TOP 3 KPI CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <Receipt className="w-8 h-8 text-emerald-200" />
-            <span className="text-xs font-semibold bg-white/20 px-3 py-1 rounded-full">DOANH SỐ</span>
-          </div>
-          <p className="text-3xl font-extrabold mt-2">{totalRevenue.toLocaleString('vi-VN')}đ</p>
-          <p className="text-emerald-100 text-sm mt-1">Doanh thu tạm tính</p>
-          {roas > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/20 text-sm">
-              <span className="text-emerald-200">ROAS: </span>
-              <span className="font-bold text-lg">{roas.toFixed(2)}x</span>
-            </div>
-          )}
-        </div>
-        <div className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <DollarSign className="w-8 h-8 text-blue-200" />
-            <span className="text-xs font-semibold bg-white/20 px-3 py-1 rounded-full">CHI PHÍ QC</span>
-          </div>
-          <p className="text-3xl font-extrabold mt-2">{totalSpend.toLocaleString('vi-VN')}đ</p>
-          <p className="text-blue-100 text-sm mt-1">Tổng chi phí quảng cáo</p>
-          {totalMessages > 0 && (
-            <div className="mt-3 pt-3 border-t border-white/20 text-sm">
-              <span className="text-blue-200">CPA: </span>
-              <span className="font-bold text-lg">{Math.round(avgCPA).toLocaleString('vi-VN')}đ</span>
-              <span className="text-blue-200 ml-1">/tin nhắn</span>
-            </div>
-          )}
-        </div>
-        <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <ShoppingCart className="w-8 h-8 text-amber-200" />
-            <span className="text-xs font-semibold bg-white/20 px-3 py-1 rounded-full">CPO</span>
-          </div>
-          <p className="text-3xl font-extrabold mt-2">{Math.round(avgCPO).toLocaleString('vi-VN')}đ</p>
-          <p className="text-amber-100 text-sm mt-1">Chi phí trên 1 đơn</p>
-          <div className="mt-3 pt-3 border-t border-white/20 text-sm">
-            <span className="text-amber-200">Tổng đơn: </span>
-            <span className="font-bold text-lg">{totalOrders}</span>
-            <span className="text-amber-200 ml-1">đơn hàng</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Cards - Row 2 */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <Eye className="w-6 h-6 text-purple-500" />
-            <span className="text-xs font-medium text-purple-500 bg-purple-50 px-2 py-1 rounded-full">Hiển thị</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-800">{totalImpressions.toLocaleString('vi-VN')}</p>
-          <p className="text-sm text-gray-500 mt-1">Lượt hiển thị</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <MousePointer className="w-6 h-6 text-cyan-500" />
-            <span className="text-xs font-medium text-cyan-500 bg-cyan-50 px-2 py-1 rounded-full">Clicks</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-800">{totalClicks.toLocaleString('vi-VN')}</p>
-          <p className="text-sm text-gray-500 mt-1">Lượt nhấp</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <MessageSquare className="w-6 h-6 text-blue-500" />
-            <span className="text-xs font-medium text-blue-500 bg-blue-50 px-2 py-1 rounded-full">Tin nhắn</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-800">{totalMessages.toLocaleString('vi-VN')}</p>
-          <p className="text-sm text-gray-500 mt-1">Tổng tin nhắn</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <TrendingUp className="w-6 h-6 text-purple-500" />
-            <span className="text-xs font-medium text-purple-500 bg-purple-50 px-2 py-1 rounded-full">CTR</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-800">{avgCTR.toFixed(2)}%</p>
-          <p className="text-sm text-gray-500 mt-1">Click-Through Rate</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-3">
-            <CheckCircle className="w-6 h-6 text-green-500" />
-            <span className="text-xs font-medium text-green-500 bg-green-50 px-2 py-1 rounded-full">Tỷ lệ chốt</span>
-          </div>
-          <p className="text-2xl font-bold text-gray-800">{avgCloseRate.toFixed(1)}%</p>
-          <p className="text-sm text-gray-500 mt-1">Đơn/Tin nhắn</p>
-        </div>
-      </div>
-
-      {/* Task Summary */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-        <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-          <CheckCircle className="w-5 h-5 text-indigo-500" />
-          Tổng Quan Action Plan
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-3xl font-bold text-gray-800">{totalTasks}</p>
-            <p className="text-sm text-gray-500">Tổng công việc</p>
-          </div>
-          <div className="text-center p-4 bg-green-50 rounded-lg">
-            <p className="text-3xl font-bold text-green-600">{doneTasks}</p>
-            <p className="text-sm text-gray-500">Hoàn thành</p>
-          </div>
-          <div className="text-center p-4 bg-blue-50 rounded-lg">
-            <p className="text-3xl font-bold text-blue-600">{inProgressTasks}</p>
-            <p className="text-sm text-gray-500">Đang làm</p>
-          </div>
-          <div className="text-center p-4 bg-yellow-50 rounded-lg">
-            <p className="text-3xl font-bold text-yellow-600">{pendingTasks}</p>
-            <p className="text-sm text-gray-500">Chờ xử lý</p>
-          </div>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-3">
-          <div className="bg-gradient-to-r from-indigo-400 to-indigo-600 h-3 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
-        </div>
-        <p className="text-sm text-gray-500 mt-2 text-right">{progress}% hoàn thành</p>
-      </div>
-
-      {/* Phase Progress */}
-      {actionPlan.length > 0 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <h3 className="font-semibold text-gray-700 mb-4">Tiến Độ Theo Giai Đoạn</h3>
-          <div className="space-y-4">
-            {actionPlan.map((phase, index) => {
-              const phaseTasks = phase.subPhases.flatMap(sp => sp.tasks);
-              const phaseTotal = phaseTasks.length;
-              const phaseDone = phaseTasks.filter(t => t.status === 'completed').length;
-              const phaseProgress = phaseTotal > 0 ? Math.round((phaseDone / phaseTotal) * 100) : 0;
-              const colors = ['blue', 'orange', 'green'][index] || 'gray';
-              
-              return (
-                <div key={phase.id}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-gray-700">{phase.code}. {phase.name}</span>
-                    <span className="text-sm text-gray-500">{phaseDone}/{phaseTotal} ({phaseProgress}%)</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className={`h-2 rounded-full transition-all duration-500 ${
-                        colors === 'blue' ? 'bg-blue-500' : 
-                        colors === 'orange' ? 'bg-orange-500' : 
-                        'bg-green-500'
-                      }`} 
-                      style={{ width: `${phaseProgress}%` }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Recent Issues */}
-      {filteredLogs.filter(l => l.issues).length > 0 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-orange-500" />
-            Vấn Đề Gần Đây (Trong khoảng thời gian lọc)
-          </h3>
-          <div className="space-y-3">
-            {filteredLogs.filter(l => l.issues).slice(-5).reverse().map(log => (
-              <div key={log.id} className="flex items-start gap-3 p-3 bg-orange-50 rounded-lg">
-                <span className="text-xs font-medium text-orange-700 bg-orange-100 px-2 py-1 rounded whitespace-nowrap">
-                  Ngày {log.day}/{log.month}
-                </span>
-                <div className="flex-1">
-                  {log.adName && (
-                    <p className="text-xs text-gray-500 mb-1">📢 {log.adName}</p>
-                  )}
-                  <p className="text-sm text-gray-700"><strong>Vấn đề:</strong> {log.issues}</p>
-                  {log.optimizations && (
-                    <p className="text-sm text-green-700 mt-1"><strong>Hành động:</strong> {log.optimizations}</p>
-                  )}
-                </div>
-              </div>
+        <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-xl border border-gray-200">
+          <Calendar className="w-5 h-5 text-gray-500 ml-2" />
+          <select 
+            value={selectedMonth} 
+            onChange={(e) => setSelectedMonth(Number(e.target.value))}
+            className="bg-transparent font-medium text-gray-700 outline-none cursor-pointer"
+          >
+            {Array.from({ length: 12 }, (_, i) => (
+              <option key={i + 1} value={i + 1}>Tháng {i + 1}</option>
             ))}
-          </div>
+          </select>
+          <select 
+            value={selectedYear} 
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="bg-transparent font-medium text-gray-700 outline-none cursor-pointer pr-2"
+          >
+            {[2024, 2025, 2026, 2027].map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
         </div>
-      )}
+      </div>
 
-      {/* Empty State */}
-      {totalTasks === 0 && logs.length === 0 && (
-        <div className="bg-gradient-to-br from-gray-50 to-blue-50 rounded-xl p-12 text-center">
-          <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Rocket className="w-10 h-10 text-blue-500" />
+      {/* 4 Thẻ KPI Chính */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-5 text-white shadow-sm">
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-green-100 font-medium">Doanh Thu Tạm Tính</p>
+            <div className="p-2 bg-white/20 rounded-lg"><DollarSign className="w-5 h-5" /></div>
           </div>
-          <h3 className="text-xl font-bold text-gray-700 mb-2">Dự án mới được tạo!</h3>
-          <p className="text-gray-500 max-w-md mx-auto">
-            Bắt đầu bằng việc thêm công việc trong <strong>Action Plan</strong>, 
-            cập nhật thông tin trong <strong>Chiến Lược</strong>, 
-            và ghi nhận hoạt động hàng ngày trong <strong>Báo Cáo</strong>.
-          </p>
+          <h3 className="text-2xl font-bold">{formatMoney(totalRevenue)}</h3>
         </div>
-      )}
+
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-5 text-white shadow-sm">
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-blue-100 font-medium">Chi Phí Quảng Cáo</p>
+            <div className="p-2 bg-white/20 rounded-lg"><TrendingUp className="w-5 h-5" /></div>
+          </div>
+          <h3 className="text-2xl font-bold">{formatMoney(totalSpend)}</h3>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-gray-500 font-medium">Tổng Đơn Hàng</p>
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><ShoppingBag className="w-5 h-5" /></div>
+          </div>
+          <h3 className="text-2xl font-bold text-gray-800">{totalOrdersCount} <span className="text-sm font-normal text-gray-500">đơn</span></h3>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-gray-500 font-medium">CPA (Chi phí / Tin nhắn)</p>
+            <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><Activity className="w-5 h-5" /></div>
+          </div>
+          <h3 className="text-2xl font-bold text-gray-800">{formatMoney(cpa)}</h3>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Cột Trái: Thống Kê Đơn Hàng */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-6">
+            <Package className="w-5 h-5 text-indigo-500" /> Tỉ Lệ Chuyển Phát
+          </h3>
+          
+          <div className="space-y-5">
+            <div>
+              <div className="flex justify-between text-sm mb-1.5">
+                <span className="font-medium text-green-700">Thành công / Đã nhận ({successOrders})</span>
+                <span className="font-bold text-green-700">{successRate.toFixed(1)}%</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2.5">
+                <div className="bg-green-500 h-2.5 rounded-full" style={{ width: `${successRate}%` }}></div>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-sm mb-1.5">
+                <span className="font-medium text-blue-700">Đang xử lý / Đang giao ({pendingOrders})</span>
+                <span className="font-bold text-blue-700">{totalOrdersCount > 0 ? ((pendingOrders / totalOrdersCount) * 100).toFixed(1) : 0}%</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2.5">
+                <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${totalOrdersCount > 0 ? (pendingOrders / totalOrdersCount) * 100 : 0}%` }}></div>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-sm mb-1.5">
+                <span className="font-medium text-red-700">Hủy / Hoàn hàng ({returningOrders})</span>
+                <span className="font-bold text-red-700">{returnRate.toFixed(1)}%</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2.5">
+                <div className="bg-red-500 h-2.5 rounded-full" style={{ width: `${returnRate}%` }}></div>
+              </div>
+            </div>
+          </div>
+          
+          {returnRate > 15 && (
+            <div className="mt-6 bg-red-50 text-red-700 p-3 rounded-xl text-sm flex items-start gap-2 border border-red-100">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <p><strong>Cảnh báo:</strong> Tỉ lệ hoàn/hủy đang ở mức cao ({returnRate.toFixed(1)}%). Cần kiểm tra lại chất lượng sản phẩm hoặc khâu chăm sóc khách hàng.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Cột Phải: Thống Kê Quảng Cáo */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-6">
+            <Activity className="w-5 h-5 text-blue-500" /> Hiệu Quả Quảng Cáo (Ads)
+          </h3>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+              <p className="text-sm text-gray-500 mb-1">Tổng Lượt Hiển Thị</p>
+              <p className="text-xl font-bold text-gray-800">{new Intl.NumberFormat('vi-VN').format(totalImpressions)}</p>
+            </div>
+            
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+              <p className="text-sm text-gray-500 mb-1">Tổng Lượt Clicks</p>
+              <p className="text-xl font-bold text-gray-800">{new Intl.NumberFormat('vi-VN').format(totalClicks)}</p>
+            </div>
+
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+              <p className="text-sm text-gray-500 mb-1">Tin Nhắn Mới</p>
+              <p className="text-xl font-bold text-blue-600">{new Intl.NumberFormat('vi-VN').format(totalMessages)}</p>
+            </div>
+
+            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+              <p className="text-sm text-gray-500 mb-1">CTR (Tỉ lệ click)</p>
+              <p className="text-xl font-bold text-purple-600">{ctr.toFixed(2)}%</p>
+            </div>
+          </div>
+
+          <div className="mt-6 pt-5 border-t border-gray-100">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-600">Tỉ lệ chốt đơn (Tin nhắn -> Đơn):</span>
+              <span className="font-bold text-gray-800 bg-gray-100 px-3 py-1 rounded-lg">
+                {totalMessages > 0 ? ((totalOrdersCount / totalMessages) * 100).toFixed(1) : 0}%
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
