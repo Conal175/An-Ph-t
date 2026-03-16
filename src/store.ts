@@ -341,7 +341,7 @@ export const updateOrder = async (id: string, order: Partial<Order>): Promise<bo
   if (!supabase) return false;
   
   const updates: any = {};
-  if (order.sheetName !== undefined) updates.sheet_name = order.sheetName; // <-- Đã thêm
+  if (order.sheetName !== undefined) updates.sheet_name = order.sheetName;
   if (order.orderDate !== undefined) updates.order_date = order.orderDate || null;
   if (order.source !== undefined) updates.source = order.source;
   if (order.customerInfo !== undefined) updates.customer_info = order.customerInfo;
@@ -352,12 +352,23 @@ export const updateOrder = async (id: string, order: Partial<Order>): Promise<bo
   if (order.total !== undefined) updates.total = order.total;
   if (order.notes !== undefined) updates.notes = order.notes;
   if (order.shippingDate !== undefined) updates.shipping_date = order.shippingDate || null;
-  if (order.trackingCode !== undefined) updates.trackingCode = order.trackingCode;
+  
+  // ĐÃ SỬA LỖI CHÍNH TẢ Ở DÒNG NÀY (Chuyển trackingCode thành tracking_code)
+  if (order.trackingCode !== undefined) updates.tracking_code = order.trackingCode; 
+  
   if (order.status !== undefined) updates.status = order.status;
   if (order.shippingFee !== undefined) updates.shipping_fee = order.shippingFee;
 
   const { error } = await supabase.from('orders').update(updates).eq('id', id);
-  return !error;
+  
+  // Thêm cảnh báo nếu Database báo lỗi để dễ dàng gỡ rối
+  if (error) {
+    console.error("Lỗi khi lưu đơn hàng:", error);
+    alert(`Không thể lưu thay đổi: ${error.message}`);
+    return false;
+  }
+  
+  return true;
 };
 
 export const deleteOrder = async (id: string): Promise<boolean> => {
