@@ -220,7 +220,7 @@ export function Dashboard({ project }: Props) {
 
           <div className="mt-6 pt-5 border-t border-gray-100">
             <div className="flex justify-between items-center text-sm">
-              <span className="text-gray-600">Tỉ lệ chốt đơn (Tin nhắn -> Đơn):</span>
+              <span className="text-gray-600">Tỉ lệ chốt đơn (Tin nhắn → Đơn):</span>
               <span className="font-bold text-gray-800 bg-gray-100 px-3 py-1 rounded-lg">
                 {totalMessages > 0 ? ((totalOrdersCount / totalMessages) * 100).toFixed(1) : 0}%
               </span>
