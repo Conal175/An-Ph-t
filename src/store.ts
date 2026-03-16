@@ -21,27 +21,79 @@ export interface Project {
 }
 
 export const fetchProjects = async (): Promise<Project[]> => {
-  const supabase = getSupabase();
-  if (!supabase) return [];
-  const { data, error } = await supabase.from('projects').select('*').order('created_at', { ascending: false });
-  if (error) { console.error("Lỗi lấy dự án:", error); return []; }
-  return data.map(d => ({ id: d.id, name: d.name, description: d.description, createdAt: d.created_at }));
+  try {
+    const supabase = getSupabase();
+    if (!supabase) return [];
+    
+    // Bỏ .order() trong query để tránh lỗi văng app nếu DB của bạn đặt tên cột ngày tháng khác đi
+    // Chúng ta sẽ lấy toàn bộ data về rồi dùng code Javascript để sắp xếp
+    const { data, error } = await supabase.from('projects').select('*');
+    
+    if (error) {
+      console.error("Lỗi Supabase:", error);
+      // Bật Alert để nếu sai tên bảng/cột, nó sẽ báo ngay trên màn hình thay vì im lặng
+      alert("Lỗi tải danh sách dự án từ Supabase: " + error.message);
+      return [];
+    }
+    
+    if (!data) return [];
+
+    const projects = data.map(d => ({ 
+      id: d.id, 
+      name: d.name, 
+      description: d.description, 
+      // Hỗ trợ tự động nhận diện cả 2 kiểu tên cột ngày tháng phổ biến
+      createdAt: d.created_at || d.createdAt || new Date().toISOString() 
+    }));
+
+    // Sắp xếp dự án mới nhất lên đầu bằng Javascript
+    return projects.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } catch (err) {
+    console.error("Lỗi code khi tải dự án:", err);
+    return [];
+  }
 };
 
 export const insertProject = async (project: Project): Promise<boolean> => {
   const supabase = getSupabase();
   if (!supabase) return false;
+  
+  // Thử insert với chuẩn chung 'created_at'
   const { error } = await supabase.from('projects').insert([{
-    id: project.id, name: project.name, description: project.description, created_at: project.createdAt
+    id: project.id, 
+    name: project.name, 
+    description: project.description, 
+    created_at: project.createdAt
   }]);
-  return !error;
+  
+  if (error) {
+    // Nếu lỗi do database cấu hình cột là 'createdAt', thử lại lần 2
+    const fallback = await supabase.from('projects').insert([{
+      id: project.id, 
+      name: project.name, 
+      description: project.description, 
+      createdAt: project.createdAt
+    }]);
+    
+    if (fallback.error) {
+      alert("Lỗi tạo dự án trên DB: " + fallback.error.message);
+      return false;
+    }
+  }
+  return true;
 };
 
 export const removeProject = async (id: string): Promise<boolean> => {
   const supabase = getSupabase();
   if (!supabase) return false;
+  
   const { error } = await supabase.from('projects').delete().eq('id', id);
-  return !error;
+  
+  if (error) {
+    alert("Lỗi xóa dự án: " + error.message);
+    return false;
+  }
+  return true;
 };
 
 // ==========================================
@@ -204,7 +256,6 @@ export const updateOrder = async (id: string, order: Partial<Order>): Promise<bo
   if (order.notes !== undefined) updates.notes = order.notes;
   if (order.shippingDate !== undefined) updates.shipping_date = order.shippingDate || null;
   
-  // ĐÃ SỬA LỖI Ở ĐÂY: trackingCode -> tracking_code để Database hiểu được
   if (order.trackingCode !== undefined) updates.tracking_code = order.trackingCode; 
   
   if (order.status !== undefined) updates.status = order.status;
@@ -230,28 +281,15 @@ export const deleteOrdersBySheet = async (projectId: string, sheetName: string):
   const supabase = getSupabase();
   if (!supabase) return false;
   let query = supabase.from('orders').delete().eq('project_id', projectId);
+  
   if (sheetName !== 'ALL_SHEETS') {
     query = query.eq('sheet_name', sheetName);
   }
+  
   const { error } = await query;
-  if (error) { alert(`Lỗi xóa bảng: ${error.message}`); return false; }
+  if (error) { 
+    alert(`Lỗi xóa bảng: ${error.message}`); 
+    return false; 
+  }
   return true;
 };
-
-
-// ==========================================
-// 6. API CHO BẢNG FANPAGES (TRANG MEDIA)
-// ==========================================
-export interface Fanpage {
-  id: string;
-  projectId: string;
-  name: string;
-  link: string;
-  status: string;
-  notes: string;
-}
-
-// Lưu ý: Tùy thuộc vào Database của bạn, nếu bạn đang dùng JSON (getProjectData) cho Fanpage, 
-// thì phần MediaResources sẽ dùng getProjectData. 
-// Dưới đây là các hàm mẫu thao tác trên bảng SQL riêng (nếu bạn tạo bảng fanpages).
-// Trong code MediaResources bên dưới, tôi sẽ ưu tiên dùng Cấu trúc dữ liệu JSON để không bắt bạn phải tạo thêm bảng SQL mới.
