@@ -1,126 +1,103 @@
-import React, { useState, useEffect } from 'react';
-import { Swords, Save, Loader2, ArrowLeft, Plus, Trash2 } from 'lucide-react';
-import { getProjectData, setProjectData } from '../store';
-import { useAuth } from '../contexts/AuthContext';
+import { useState } from 'react';
+import type { Competitor } from '../types';
+import { useSyncData } from '../store';
 import { v4 as uuid } from 'uuid';
+import { Plus, Edit2, Trash2, Swords, ArrowLeft, Loader2 } from 'lucide-react';
 
-interface Props {
-  projectId: string;
-  onBack: () => void;
-}
-
-interface Competitor {
-  id: string;
-  name: string;
-  strengths: string;
-  weaknesses: string;
-  ourAdvantage: string;
-}
+interface Props { projectId: string; onBack: () => void; }
 
 export function CompetitorStrategy({ projectId, onBack }: Props) {
-  const [competitors, setCompetitors] = useState<Competitor[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const { checkPermission } = useAuth();
-  const canEdit = checkPermission('competitors', 'edit');
+  const { data: competitors, syncData: setCompetitors, loading } = useSyncData<Competitor>(projectId, 'competitors', []);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ fanpageName: '', adLinks: '', productPrice: '', specs: '', salesPolicy: '', mediaFormat: '', weaknesses: '', strategy: '' });
 
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      const savedData = await getProjectData(projectId, 'competitorStrategy');
-      if (savedData && Array.isArray(savedData)) {
-        setCompetitors(savedData);
-      } else if (savedData === null) {
-        // Mặc định 1 form trống nếu chưa có data
-        setCompetitors([{ id: uuid(), name: '', strengths: '', weaknesses: '', ourAdvantage: '' }]);
-      }
-      setLoading(false);
-    };
-    loadData();
-  }, [projectId]);
+  const resetForm = () => { 
+    setForm({ fanpageName: '', adLinks: '', productPrice: '', specs: '', salesPolicy: '', mediaFormat: '', weaknesses: '', strategy: '' }); 
+    setShowForm(false); 
+    setEditingId(null); 
+  };
 
   const handleSave = async () => {
-    if (!canEdit) return;
-    setIsSaving(true);
-    await setProjectData(projectId, 'competitorStrategy', competitors);
-    setIsSaving(false);
-    alert('✅ Đã lưu thông tin Phân tích Đối thủ!');
+    if (!form.fanpageName.trim()) return;
+    if (editingId) {
+      await setCompetitors(competitors.map(c => c.id === editingId ? { ...c, ...form } : c));
+    } else {
+      await setCompetitors([...competitors, { id: uuid(), projectId, ...form }]);
+    }
+    resetForm();
   };
 
-  const addCompetitor = () => {
-    setCompetitors([{ id: uuid(), name: '', strengths: '', weaknesses: '', ourAdvantage: '' }, ...competitors]);
-  };
-
-  const removeCompetitor = (id: string) => {
-    setCompetitors(competitors.filter(c => c.id !== id));
-  };
-
-  const updateCompetitor = (id: string, field: keyof Competitor, value: string) => {
-    setCompetitors(competitors.map(c => c.id === id ? { ...c, [field]: value } : c));
-  };
-
-  if (loading) return <div className="py-24 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-red-600" /></div>;
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-24 text-gray-500">
+      <Loader2 className="w-8 h-8 animate-spin text-red-500 mb-4" />
+      <p>Đang tải dữ liệu đối thủ...</p>
+    </div>
+  );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-xl transition-colors"><ArrowLeft className="w-5 h-5 text-gray-600" /></button>
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Swords className="w-6 h-6 text-red-600" /> Tình Báo Đối Thủ</h2>
-            <p className="text-sm text-gray-500 mt-1">Phân tích điểm mạnh, điểm yếu và lợi thế cạnh tranh</p>
+          <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-lg"><ArrowLeft className="w-5 h-5 text-gray-600" /></button>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-rose-600 rounded-xl flex items-center justify-center"><Swords className="w-6 h-6 text-white" /></div>
+            <h1 className="text-2xl font-bold text-gray-800">Tình Báo Đối Thủ</h1>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {canEdit && (
-            <button onClick={addCompetitor} className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2.5 rounded-xl hover:bg-gray-200 font-medium transition-colors">
-              <Plus className="w-4 h-4" /> Thêm Đối Thủ
-            </button>
-          )}
-          {canEdit && (
-            <button onClick={handleSave} disabled={isSaving} className="flex items-center gap-2 bg-red-600 text-white px-6 py-2.5 rounded-xl hover:bg-red-700 font-medium shadow-sm transition-colors disabled:opacity-50">
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Lưu Phân Tích
-            </button>
-          )}
-        </div>
+        <button onClick={() => setShowForm(true)} className="flex items-center gap-2 bg-red-600 text-white px-5 py-2.5 rounded-xl hover:bg-red-700 transition-colors"><Plus className="w-5 h-5" /> Thêm đối thủ</button>
       </div>
 
-      <div className="space-y-6">
-        {competitors.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-gray-300 text-gray-500">
-            Chưa có dữ liệu đối thủ. Hãy thêm đối thủ đầu tiên.
-          </div>
-        ) : competitors.map((comp, index) => (
-          <div key={comp.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="bg-red-50/50 border-b border-red-100 p-4 flex items-center justify-between">
-              <div className="flex-1 max-w-sm">
-                <input 
-                  type="text" 
-                  value={comp.name} 
-                  onChange={e => updateCompetitor(comp.id, 'name', e.target.value)} 
-                  disabled={!canEdit}
-                  placeholder={`Tên đối thủ cạnh tranh #${index + 1}...`}
-                  className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 font-bold text-gray-800 focus:ring-2 focus:ring-red-500 outline-none"
-                />
-              </div>
-              {canEdit && <button onClick={() => removeCompetitor(comp.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-100 rounded-lg transition-colors"><Trash2 className="w-5 h-5" /></button>}
+      {showForm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold mb-5">{editingId ? 'Sửa' : 'Thêm'} Đối Thủ</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><input value={form.fanpageName} onChange={e => setForm({...form, fanpageName: e.target.value})} className="w-full border p-3 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Tên Fanpage *" /></div>
+              <div><textarea value={form.adLinks} onChange={e => setForm({...form, adLinks: e.target.value})} className="w-full border p-3 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Link quảng cáo" rows={2}/></div>
+              <div><textarea value={form.productPrice} onChange={e => setForm({...form, productPrice: e.target.value})} className="w-full border p-3 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Sản phẩm & Giá" rows={2}/></div>
+              <div><textarea value={form.specs} onChange={e => setForm({...form, specs: e.target.value})} className="w-full border p-3 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Thông số KT" rows={2}/></div>
+              <div><textarea value={form.salesPolicy} onChange={e => setForm({...form, salesPolicy: e.target.value})} className="w-full border p-3 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Chính sách bán hàng" rows={2}/></div>
+              <div><input value={form.mediaFormat} onChange={e => setForm({...form, mediaFormat: e.target.value})} className="w-full border p-3 rounded-xl focus:ring-2 focus:ring-red-500 outline-none" placeholder="Định dạng Media" /></div>
+              <div className="md:col-span-2"><textarea value={form.weaknesses} onChange={e => setForm({...form, weaknesses: e.target.value})} className="w-full border-red-200 bg-red-50 p-3 rounded-xl outline-none" placeholder="⚠️ Điểm yếu" rows={2}/></div>
+              <div className="md:col-span-2"><textarea value={form.strategy} onChange={e => setForm({...form, strategy: e.target.value})} className="w-full border-green-200 bg-green-50 p-3 rounded-xl outline-none" placeholder="✅ Chiến lược ứng phó" rows={2}/></div>
             </div>
-            <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-5">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Điểm mạnh (Strengths)</label>
-                <textarea value={comp.strengths} onChange={e => updateCompetitor(comp.id, 'strengths', e.target.value)} disabled={!canEdit} rows={4} className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-500 outline-none bg-gray-50/50 resize-none" placeholder="Họ đang làm rất tốt điều gì?..." />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Điểm yếu (Weaknesses)</label>
-                <textarea value={comp.weaknesses} onChange={e => updateCompetitor(comp.id, 'weaknesses', e.target.value)} disabled={!canEdit} rows={4} className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-500 outline-none bg-gray-50/50 resize-none" placeholder="Họ đang bị khách hàng chê ở điểm nào?..." />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-red-700 mb-2">Lợi thế của chúng ta</label>
-                <textarea value={comp.ourAdvantage} onChange={e => updateCompetitor(comp.id, 'ourAdvantage', e.target.value)} disabled={!canEdit} rows={4} className="w-full border border-red-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-500 outline-none bg-red-50/30 resize-none" placeholder="Cách chúng ta đánh bại đối thủ này?..." />
-              </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={handleSave} className="flex-1 bg-red-600 text-white py-3 rounded-xl hover:bg-red-700 transition-colors">Lưu thay đổi</button>
+              <button onClick={resetForm} className="px-6 py-3 bg-gray-100 rounded-xl hover:bg-gray-200">Hủy</button>
             </div>
           </div>
-        ))}
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-red-50 border-b border-red-100">
+              <tr>
+                <th className="p-4 text-xs font-bold text-red-800 uppercase tracking-wider">Fanpage</th>
+                <th className="p-4 text-xs font-bold text-red-800 bg-red-100 uppercase tracking-wider">Điểm yếu</th>
+                <th className="p-4 text-xs font-bold text-green-800 bg-green-50 uppercase tracking-wider">Chiến lược ứng phó</th>
+                <th className="p-4 text-center text-xs font-bold text-red-800 uppercase tracking-wider">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {competitors.map(c => (
+                <tr key={c.id} className="border-b hover:bg-gray-50 transition-colors">
+                  <td className="p-4 font-semibold text-gray-800">{c.fanpageName}</td>
+                  <td className="p-4 bg-red-50/50 text-red-700 text-sm whitespace-pre-line">{c.weaknesses}</td>
+                  <td className="p-4 bg-green-50/50 text-green-700 text-sm whitespace-pre-line">{c.strategy}</td>
+                  <td className="p-4">
+                    <div className="flex items-center justify-center gap-2">
+                      <button onClick={() => {setForm(c); setEditingId(c.id); setShowForm(true);}} className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={async () => { if(confirm('Xóa đối thủ này?')) await setCompetitors(competitors.filter(x => x.id !== c.id)) }} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
